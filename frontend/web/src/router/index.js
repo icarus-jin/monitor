@@ -1,0 +1,46 @@
+import Vue from 'vue'
+import VueRouter from 'vue-router'
+
+Vue.use(VueRouter)
+
+const routes = [
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('../components/Login.vue')
+  },
+  {
+    path: '/home',
+    name: 'home',
+    component: () => import('../components/Home.vue'),
+    redirect: '/home/welcome',
+    children: [
+      {
+        path: 'welcome',
+        name: 'welcome',
+        component: () => import('../components/Welcome.vue'),
+        meta: { noCard: true }
+      },
+      {
+        path: '/user_list',
+        name: 'user_list',
+        component: () => import('../components/user/User.vue'),
+        meta: { title: '用户管理', icon: 'el-icon-user-solid' }
+      }
+    ]
+  }
+]
+
+const router = new VueRouter({
+  routes
+})
+
+export default router
+
+// 前端控制必须登录才能访问
+router.beforeEach((to, from, next) => {
+  if (to.path === '/login') return next()
+  const token = window.sessionStorage.getItem('token')
+  if (!token) return next('/login')
+  next()
+})
