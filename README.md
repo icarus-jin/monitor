@@ -1,2 +1,2 @@
 # monitor
-monitor all data from aliyun database
+collect monitoring data from aliyun database
