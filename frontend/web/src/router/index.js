@@ -26,6 +26,12 @@ const routes = [
         name: 'user_list',
         component: () => import('../components/user/User.vue'),
         meta: { title: '用户管理', icon: 'el-icon-user-solid' }
+      },
+      {
+        path: '/device_list',
+        name: 'device_list',
+        component: () => import('../components/device/DeviceInfo.vue'),
+        meta: { title: '设备管理', icon: 'el-icon-s-platform' }
       }
     ]
   }

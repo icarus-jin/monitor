@@ -1,49 +1,33 @@
 <template>
   <el-container class="home-container">
-    <!-- Header -->
     <el-header class="header">
       <div class="header-left">
         <img src="../assets/logo.png" class="logo" />
-        <span class="title">电商管理系统</span>
+        <span class="title">气象监测管理系统</span>
       </div>
-
       <div class="header-right">
         <span class="user">{{ username }}</span>
         <el-divider direction="vertical"></el-divider>
-        <el-button type="text" class="logout-btn" @click="logout">
-          退出
-        </el-button>
+        <el-button type="text" class="logout-btn" @click="logout">退出</el-button>
       </div>
     </el-header>
 
     <el-container>
-      <!-- Aside -->
       <el-aside class="aside" width="220px">
         <el-menu
           router
           :default-active="$route.path"
           :collapse="isCollapse"
-          background-color="transparent"
-          text-color="#cbd5e1"
-          active-text-color="#38bdf8"
+          background-color="#ffffff"
+          text-color="#475569"
+          active-text-color="#3b82f6"
         >
-          <el-submenu
-            v-for="item in menuList"
-            :key="item.id"
-            :index="String(item.id)"
-          >
-            <!-- 一级菜单 -->
+          <el-submenu v-for="item in menuList" :key="item.id" :index="String(item.id)">
             <template slot="title">
               <i :class="getIcon(item.id)" class="menu-icon"></i>
               <span>{{ item.name }}</span>
             </template>
-
-            <!-- 二级菜单 -->
-            <el-menu-item
-              v-for="subItem in item.children"
-              :key="subItem.id"
-              :index="String(subItem.path)"
-            >
+            <el-menu-item v-for="subItem in item.children" :key="subItem.id" :index="String(subItem.path)">
               <i :class="getIcon(subItem.id)" class="submenu-icon"></i>
               <span>{{ subItem.name }}</span>
             </el-menu-item>
@@ -51,14 +35,10 @@
         </el-menu>
       </el-aside>
 
-      <!-- Main -->
       <el-main class="main">
-        <!-- 有白卡 -->
         <div v-if="showCard" class="content-card">
           <router-view />
         </div>
-
-        <!-- 无白卡（Dashboard 等） -->
         <router-view v-else />
       </el-main>
     </el-container>
@@ -69,53 +49,31 @@
 /* eslint vue/multi-word-component-names: "off" */
 export default {
   name: 'Home',
-  created () {
-    this.getMenuList()
-  },
+  created () { this.getMenuList() },
   data () {
     return {
       username: window.sessionStorage.getItem('username'),
       isCollapse: false,
       menuList: [],
-      /**
-       * ⭐ 菜单图标映射（通过 id 控制）
-       * key = 后端返回的 id
-       * value = Element UI 图标类名
-       */
       iconMap: {
-        // 一级菜单
-        2: 'el-icon-user-solid', // 用户管理
-        3: 'el-icon-s-check', // 权限管理
-        4: 'el-icon-goods', // 商品管理
-        5: 'el-icon-s-order', // 订单管理
-        6: 'el-icon-data-analysis', // 数据统计
-        21: 'el-icon-user', // 用户列表
-        31: 'el-icon-s-custom', // 角色列表
-        32: 'el-icon-lock' // 权限列表
+        2: 'el-icon-user-solid',
+        3: 'el-icon-s-platform',
+        21: 'el-icon-user',
+        31: 'el-icon-s-platform'
       }
     }
   },
   computed: {
-    /**
-     * 是否显示白色内容卡
-     * 默认显示，只有 meta.noCard = true 才隐藏
-     */
-    showCard () {
-      return !this.$route.meta.noCard
-    }
+    showCard () { return !this.$route.meta.noCard }
   },
   methods: {
     getMenuList () {
-      this.$axios.get('/menu/').then(res => {
-        this.menuList = res.data.data
-      })
+      this.menuList = [
+        { id: 2, name: '用户管理', children: [{ id: 21, name: '用户列表', path: '/user_list' }] },
+        { id: 3, name: '设备管理', children: [{ id: 31, name: '设备列表', path: '/device_list' }] }
+      ]
     },
-    /**
-     * 根据菜单 id 获取图标
-     */
-    getIcon (id) {
-      return this.iconMap[id] || 'el-icon-menu'
-    },
+    getIcon (id) { return this.iconMap[id] || 'el-icon-menu' },
     logout () {
       window.sessionStorage.removeItem('token')
       window.sessionStorage.removeItem('username')
@@ -127,188 +85,73 @@ export default {
 </script>
 
 <style>
-/* ======================
-   全局
-====================== */
-html,
-body,
-#app {
-  height: 100%;
-  margin: 0;
-  background-color: #020617;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "Helvetica Neue", Arial;
-}
+html, body, #app { height: 100%; margin: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial; }
 
-/* ======================
-   容器
-====================== */
-.home-container {
-  height: 100%;
-  background-color: #020617;
-}
+.home-container { height: 100%; background-color: #f1f5f9; }
 
-/* ======================
-   Header
-====================== */
 .header {
-  height: 120px;
-  background: linear-gradient(90deg, #020617, #020617);
+  height: 60px;
+  background: #fff;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 36px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  padding: 0 24px;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-}
+.header-left { display: flex; align-items: center; }
+.logo { height: 36px; margin-right: 12px; }
+.title { font-size: 18px; font-weight: 600; color: #1e293b; }
 
-.logo {
-  height: 48px;
-  margin-right: 14px;
-}
+.header-right { display: flex; align-items: center; gap: 12px; }
+.user { color: #475569; font-size: 14px; }
+.logout-btn { color: #64748b; padding: 0; }
+.logout-btn:hover { color: #3b82f6; }
 
-.title {
-  font-size: 22px;
-  font-weight: 600;
-  color: #e5e7eb;
-  letter-spacing: 1px;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.user {
-  color: #cbd5e1;
-}
-
-.logout-btn {
-  color: #94a3b8;
-  padding: 0;
-}
-
-.logout-btn:hover {
-  color: #38bdf8;
-}
-
-/* ======================
-   Aside
-====================== */
 .aside {
-  background-color: #020617;
+  background: #fff;
   padding-top: 12px;
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  border-right: 1px solid #e2e8f0;
 }
 
-/* ======================
-   Menu 基础
-====================== */
-.el-menu {
-  background-color: transparent !important;
-  border-right: none;
-}
+.el-menu { border-right: none !important; }
 
-/* ======================
-   一级菜单
-====================== */
 .el-submenu__title {
   height: 48px;
   line-height: 48px;
-  margin: 8px 12px;
+  margin: 4px 12px;
   padding-left: 18px !important;
-  border-radius: 12px;
-  font-size: 15px;
-  font-weight: 600;
-  color: #e5e7eb !important;
-  transition: all 0.25s ease;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #475569 !important;
 }
 
-.el-submenu__title:hover {
-  background: linear-gradient(
-    90deg,
-    rgba(56, 189, 248, 0.3),
-    rgba(56, 189, 248, 0.08)
-  ) !important;
-  color: #ffffff !important;
-}
+.el-submenu__title:hover { background: #f1f5f9 !important; color: #1e293b !important; }
 
-/* ======================
-   二级菜单
-====================== */
 .el-menu .el-menu-item {
   height: 42px;
   line-height: 42px;
-  margin: 4px 20px;
+  margin: 4px 16px;
   padding-left: 42px !important;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 400;
-  color: #cbd5e1 !important;
-  transition: all 0.25s ease;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #64748b !important;
 }
 
-.el-menu .el-menu-item:hover {
-  background: linear-gradient(
-    90deg,
-    rgba(56, 189, 248, 0.18),
-    rgba(56, 189, 248, 0.04)
-  ) !important;
-  color: #ffffff !important;
-}
+.el-menu .el-menu-item:hover { background: #f1f5f9 !important; color: #1e293b !important; }
+.el-menu .el-menu-item.is-active { background: #eff6ff !important; color: #3b82f6 !important; }
 
-.el-menu .el-menu-item.is-active {
-  background: linear-gradient(
-    90deg,
-    rgba(56, 189, 248, 0.45),
-    rgba(56, 189, 248, 0.12)
-  ) !important;
-  color: #ffffff !important;
-  box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
-}
+.menu-icon { margin-right: 10px; font-size: 18px; color: #64748b; }
+.submenu-icon { margin-right: 10px; font-size: 14px; color: #94a3b8; }
+.el-menu-item.is-active .submenu-icon { color: #3b82f6; }
 
-/* ======================
-   图标
-====================== */
-.menu-icon {
-  margin-right: 10px;
-  font-size: 18px;
-  color: #38bdf8;
-}
+.main { background-color: #f1f5f9; padding: 20px; }
 
-.submenu-icon {
-  margin-right: 10px;
-  font-size: 15px;
-  color: #94a3b8;
-}
-
-.el-menu-item.is-active .submenu-icon,
-.el-submenu.is-active .menu-icon {
-  color: #ffffff;
-}
-
-/* ======================
-   Main
-====================== */
-.main {
-  background-color: #f1f5f9;
-  padding: 24px;
-}
-
-/* ======================
-   内容白卡
-====================== */
 .content-card {
-  background-color: #ffffff;
-  border-radius: 14px;
-  padding: 28px;
-  min-height: 300px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  min-height: 400px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 </style>

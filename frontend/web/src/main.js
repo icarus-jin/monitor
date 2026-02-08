@@ -11,7 +11,7 @@ Vue.prototype.$axios = axios
 Vue.prototype.$qs = qs
 
 axios.defaults.baseURL = '/api'
-axios.defaults.timeout = 5000
+axios.defaults.timeout = 8000
 
 // 请求拦截器，设置token
 axios.interceptors.request.use(config => {

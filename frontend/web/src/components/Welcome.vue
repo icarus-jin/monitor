@@ -1,21 +1,17 @@
 <template>
   <div class="dashboard">
-
-    <!-- 顶部欢迎 -->
+    <!-- 顶部 -->
     <div class="dashboard-header">
       <div>
-        <h1>欢迎回来，{{ username }}</h1>
-        <p>今天是 {{ today }}，祝你工作顺利 😄</p>
+        <h1>数据概览</h1>
+        <p>气象监测系统整体数据情况</p>
       </div>
-
-      <el-button type="primary" icon="el-icon-refresh" @click="refresh">
-        刷新数据
-      </el-button>
+      <el-button type="primary" icon="el-icon-refresh" @click="refresh">刷新数据</el-button>
     </div>
 
-    <!-- 指标卡 -->
+    <!-- KPI 卡片（参考 style_demo 白卡+蓝橙配色）-->
     <el-row :gutter="24" class="kpi-row">
-      <el-col :span="6" v-for="item in kpiList" :key="item.title">
+      <el-col :xs="24" :sm="12" :md="6" v-for="item in kpiList" :key="item.title">
         <div class="kpi-card">
           <div class="kpi-left">
             <p class="kpi-title">{{ item.title }}</p>
@@ -27,42 +23,33 @@
       </el-col>
     </el-row>
 
-    <!-- 中部区域 -->
+    <!-- 中部：重点区域 -->
     <el-row :gutter="24" class="middle-row">
-      <!-- 快捷入口 -->
       <el-col :span="12">
-        <div class="panel">
-          <h3 class="panel-title">快捷操作</h3>
-
-          <div class="quick-actions">
-            <div
-              class="quick-item"
-              v-for="item in quickList"
-              :key="item.title"
-              @click="go(item.path)"
-            >
-              <i :class="item.icon"></i>
-              <span>{{ item.title }}</span>
-            </div>
-          </div>
+        <div class="panel panel-orange">
+          <h3 class="panel-title">在线设备数</h3>
+          <div class="panel-value">{{ stats.online_devices }}</div>
+          <span class="panel-desc">台</span>
         </div>
       </el-col>
-
-      <!-- 系统信息 -->
       <el-col :span="12">
-        <div class="panel">
-          <h3 class="panel-title">系统提示</h3>
-
-          <ul class="notice-list">
-            <li v-for="(item, index) in noticeList" :key="index">
-              <i class="el-icon-warning-outline"></i>
-              <span>{{ item }}</span>
-            </li>
-          </ul>
+        <div class="panel panel-blue">
+          <h3 class="panel-title">用户总数</h3>
+          <div class="panel-value">{{ stats.total_users }}</div>
+          <span class="panel-desc">人</span>
         </div>
       </el-col>
     </el-row>
 
+    <!-- 底部：快捷操作 -->
+    <el-row :gutter="24" class="quick-row">
+      <el-col :span="6" v-for="item in quickList" :key="item.path">
+        <div class="quick-card" @click="go(item.path)">
+          <i :class="item.icon"></i>
+          <span>{{ item.title }}</span>
+        </div>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
@@ -72,214 +59,131 @@ export default {
   name: 'Dashboard',
   data () {
     return {
-      username: window.sessionStorage.getItem('username') || '管理员',
-      today: '',
+      stats: {
+        total_devices: 0,
+        online_devices: 0,
+        total_users: 0
+      },
       kpiList: [
-        { title: '今日订单', value: 0, desc: '单', icon: 'el-icon-s-order' },
-        { title: '今日销售额', value: '￥0.00', desc: '元', icon: 'el-icon-s-finance' },
-        { title: '用户总数', value: 0, desc: '人', icon: 'el-icon-user-solid' },
-        { title: '商品总数', value: 0, desc: '件', icon: 'el-icon-goods' }
+        { title: '设备总数', value: 0, desc: '台', icon: 'el-icon-s-platform' },
+        { title: '在线设备', value: 0, desc: '台', icon: 'el-icon-connection' },
+        { title: '用户总数', value: 0, desc: '人', icon: 'el-icon-user-solid' }
       ],
       quickList: [
-        { title: '订单管理', icon: 'el-icon-s-order', path: '/orders' },
-        { title: '商品管理', icon: 'el-icon-goods', path: '/goods' },
-        { title: '用户管理', icon: 'el-icon-user', path: '/users' },
-        { title: '数据报表', icon: 'el-icon-data-analysis', path: '/reports' }
-      ],
-      noticeList: [
-        '今日还存在待发货订单',
-        '库存低于警戒线的商品有 2 件',
-        '系统将于今晚 02:00 进行例行维护',
-        '慢慢进步中...................'
+        { title: '用户管理', icon: 'el-icon-user', path: '/user_list' },
+        { title: '设备管理', icon: 'el-icon-s-platform', path: '/device_list' }
       ]
     }
   },
   created () {
-    this.today = this.formatDate(new Date())
-    // this.getDashboardData()
+    this.getDashboardData()
   },
   methods: {
-    formatDate (date) {
-      const y = date.getFullYear()
-      const m = String(date.getMonth() + 1).padStart(2, '0')
-      const d = String(date.getDate()).padStart(2, '0')
-      return `${y}-${m}-${d}`
+    async getDashboardData () {
+      try {
+        const [devRes, userRes] = await Promise.all([
+          this.$axios.get('/device/list/', { params: { page: 1, page_size: 500 } }),
+          this.$axios.get('/user/user_list/', { params: { page: 1, page_size: 1 } })
+        ])
+        const devTotal = devRes.data?.data?.total ?? 0
+        const userTotal = userRes.data?.data?.total ?? 0
+        const online = (devRes.data?.data?.device_list || []).filter(d => d.status === 1).length
+        this.stats = { total_devices: devTotal, online_devices: online, total_users: userTotal }
+        this.kpiList[0].value = devTotal
+        this.kpiList[1].value = online
+        this.kpiList[2].value = userTotal
+      } catch (e) {
+        // 接口未就绪时使用模拟数据
+        this.stats = { total_devices: 6, online_devices: 3, total_users: 5 }
+        this.kpiList[0].value = 6
+        this.kpiList[1].value = 3
+        this.kpiList[2].value = 5
+      }
     },
     refresh () {
+      this.getDashboardData()
       this.$message.success('数据已刷新')
-      // this.getDashboardData()
     },
     go (path) {
       this.$router.push(path)
     }
-    // 后续对接接口
-    // getDashboardData () {
-    //   this.$axios.get('/dashboard').then(res => {
-    //     const data = res.data.data
-    //     this.kpiList[0].value = data.todayOrder
-    //     ...
-    //   })
-    // }
   }
 }
 </script>
 
 <style scoped>
 .dashboard {
-  background: #020617;
-  padding: 28px;
+  padding: 24px;
   min-height: calc(100vh - 120px);
-  border-radius: 12px;
+  background: #f1f5f9;
 }
 
-/* ======================
-   Header
-====================== */
 .dashboard-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .dashboard-header h1 {
-  color: #f8fafc;
-  font-size: 26px;
-  margin-bottom: 6px;
+  font-size: 24px;
+  color: #1e293b;
+  margin-bottom: 4px;
 }
 
 .dashboard-header p {
-  color: #94a3b8;
   font-size: 14px;
+  color: #64748b;
 }
 
-/* ======================
-   KPI
-====================== */
-.kpi-row {
-  margin-bottom: 28px;
-}
+.kpi-row { margin-bottom: 24px; }
 
 .kpi-card {
-  background: linear-gradient(145deg, #020617, #020617);
-  border-radius: 18px;
-  padding: 22px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow:
-    0 12px 36px rgba(0, 0, 0, 0.65),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  transition: transform 0.25s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
-.kpi-card:hover {
-  transform: translateY(-6px);
-}
+.kpi-title { color: #64748b; font-size: 14px; }
+.kpi-value { font-size: 26px; color: #1e293b; margin: 8px 0; }
+.kpi-desc { color: #94a3b8; font-size: 13px; }
+.kpi-icon { font-size: 36px; color: #3b82f6; }
 
-.kpi-title {
-  color: #94a3b8;
-  font-size: 14px;
-}
+.middle-row { margin-bottom: 24px; }
 
-.kpi-value {
-  color: #f8fafc;
-  font-size: 28px;
-  margin: 6px 0;
-}
-
-.kpi-desc {
-  color: #64748b;
-  font-size: 13px;
-}
-
-.kpi-icon {
-  font-size: 36px;
-  color: #38bdf8;
-  opacity: 0.9;
-}
-
-/* ======================
-   Panel
-====================== */
 .panel {
-  background: #020617;
-  border-radius: 18px;
-  padding: 22px;
-  height: 100%;
-  box-shadow:
-    0 18px 48px rgba(0, 0, 0, 0.65),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 24px;
+  min-height: 120px;
+  color: #fff;
 }
 
-.panel-title {
-  color: #e5e7eb;
-  font-size: 18px;
-  margin-bottom: 18px;
-}
+.panel-orange { background: linear-gradient(135deg, #f97316, #ea580c); }
+.panel-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
 
-/* ======================
-   Quick
-====================== */
-.quick-actions {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 18px;
-}
+.panel-title { font-size: 14px; opacity: 0.9; margin-bottom: 8px; }
+.panel-value { font-size: 32px; font-weight: 600; }
+.panel-desc { font-size: 14px; opacity: 0.9; }
 
-.quick-item {
-  background: rgba(15, 23, 42, 0.8);
-  border-radius: 14px;
-  padding: 18px;
+.quick-row { margin-top: 24px; }
+.quick-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: all 0.2s;
 }
 
-.quick-item i {
-  font-size: 26px;
-  color: #38bdf8;
-  margin-bottom: 10px;
+.quick-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
 }
 
-.quick-item span {
-  color: #cbd5e1;
-  font-size: 14px;
-}
-
-.quick-item:hover {
-  background: linear-gradient(
-    145deg,
-    rgba(56, 189, 248, 0.3),
-    rgba(56, 189, 248, 0.08)
-  );
-  transform: translateY(-4px);
-}
-
-/* ======================
-   Notice
-====================== */
-.notice-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.notice-list li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #cbd5e1;
-  font-size: 14px;
-  padding: 10px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
-}
-
-.notice-list li:last-child {
-  border-bottom: none;
-}
-
-.notice-list i {
-  color: #f59e0b;
-}
+.quick-card i { font-size: 28px; color: #3b82f6; display: block; margin-bottom: 8px; }
+.quick-card span { font-size: 14px; color: #334155; }
 </style>

@@ -56,14 +56,19 @@
     >
       <el-table-column type="selection" width="55" />
 
-      <el-table-column prop="id" label="用户ID" />
+      <el-table-column prop="id" label="用户ID" width="80" />
       <el-table-column prop="name" label="用户名" />
-      <el-table-column prop="nick_name" label="昵称" />
-      <el-table-column prop="phone" label="电话" />
-      <el-table-column prop="email" label="邮箱" />
-      <el-table-column prop="role_name" label="角色" />
-
-      <el-table-column label="操作" width="180">
+      <el-table-column prop="type_name" label="用户类型" width="120" />
+      <el-table-column prop="device_list_str" label="关联设备" min-width="200">
+        <template slot-scope="scope">
+          <span v-if="scope.row.device_list && scope.row.device_list.length">
+            {{ scope.row.device_list.join(', ') }}
+          </span>
+          <span v-else class="text-muted">暂无</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="create_time" label="创建时间" width="180" />
+      <el-table-column label="操作" width="220" fixed="right">
         <template slot-scope="scope">
           <el-button type="text" @click="openEdit(scope.row)">编辑</el-button>
           <el-button type="text" class="danger-text" @click="deleteUser(scope.row)">删除</el-button>
@@ -89,54 +94,35 @@
     <el-dialog
       :title="isEdit ? '编辑用户' : '新增用户'"
       :visible.sync="dialogVisible"
-      width="420px"
+      width="460px"
       @close="resetForm"
     >
       <el-form
         ref="userForm"
         :model="form"
         :rules="rules"
-        label-width="90px"
+        label-width="100px"
       >
         <el-form-item label="用户名" prop="name">
-          <el-input v-model="form.name" :disabled="isEdit" />
+          <el-input v-model="form.name" :disabled="isEdit" placeholder="请输入用户名" />
         </el-form-item>
 
-        <el-form-item label="昵称" prop="nick_name">
-          <el-input v-model="form.nick_name" />
+        <el-form-item v-if="!isEdit" label="密码" prop="password">
+          <el-input v-model="form.password" type="password" placeholder="请输入密码，不少于6位" show-password />
         </el-form-item>
 
-        <el-form-item v-if="!isEdit" label="密码" prop="pwd">
-          <el-input type="password" v-model="form.pwd" />
-        </el-form-item>
-
-        <el-form-item v-if="!isEdit" label="确认密码" prop="confirm_pwd">
-          <el-input type="password" v-model="form.confirm_pwd" />
-        </el-form-item>
-
-        <el-form-item label="电话" prop="phone">
-          <el-input v-model="form.phone" />
-        </el-form-item>
-
-        <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" />
-        </el-form-item>
-
-        <el-form-item label="角色" prop="role_id">
-          <el-select v-model="form.role_id" placeholder="请选择角色">
-            <el-option
-              v-for="role in roleList"
-              :key="role.id"
-              :label="role.name"
-              :value="role.id"
-            >
-            <span style="float: left">{{ role.id }}</span>
-            <span style="float: left; padding-left: 50px;">{{ role.name }}</span>
-            <span style="float: right; color: #8492a6; font-size: 13px; padding-left: 100px; ">{{ role.desc }}</span>
-          </el-option>
+        <el-form-item label="用户类型" prop="type">
+          <el-select v-model="form.type" placeholder="请选择用户类型" style="width:100%">
+            <el-option label="超级管理员" :value="1" />
+            <el-option label="客户" :value="2" />
           </el-select>
         </el-form-item>
 
+        <el-form-item label="关联设备" prop="device_list">
+          <el-button type="primary" plain icon="el-icon-s-platform" @click="openDeviceSelect">
+            {{ deviceListDisplay || '点击选择设备' }}
+          </el-button>
+        </el-form-item>
       </el-form>
 
       <div slot="footer" class="dialog-footer">
@@ -145,6 +131,31 @@
       </div>
     </el-dialog>
 
+    <!-- 设备多选弹窗 -->
+    <el-dialog
+      title="选择关联设备"
+      :visible.sync="deviceSelectVisible"
+      width="600px"
+      @close="closeDeviceSelect"
+    >
+      <el-table
+        ref="deviceTable"
+        :data="allDeviceList"
+        border
+        height="320"
+        @selection-change="handleDeviceSelectionChange"
+      >
+        <el-table-column type="selection" width="55" :reserve-selection="true" />
+        <el-table-column prop="device_id" label="设备ID" width="140" />
+        <el-table-column prop="device_name" label="设备名称" />
+      </el-table>
+      <div slot="footer" class="dialog-footer">
+        <el-button @click="deviceSelectVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmDeviceSelect">确定</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- 重置密码弹窗 -->
     <el-dialog
       title="重置密码"
       :visible.sync="resetPwdDialogVisible"
@@ -154,10 +165,11 @@
       <el-form
         ref="resetPwdForm"
         :model="resetPwdform"
+        :rules="resetPwdRules"
         label-width="90px"
       >
         <el-form-item label="新密码" prop="new_pwd">
-          <el-input type="password" v-model="resetPwdform.new_pwd" />
+          <el-input v-model="resetPwdform.new_pwd" type="password" placeholder="不少于6位" show-password />
         </el-form-item>
       </el-form>
 
@@ -184,63 +196,59 @@ export default {
       searchName: '',
       dialogVisible: false,
       resetPwdDialogVisible: false,
+      deviceSelectVisible: false,
       isEdit: false,
       form: {},
       resetPwdform: {},
-      roleList: [],
+      allDeviceList: [],
+      selectedDevices: [],
 
       rules: {
         name: [
           { required: true, message: '请输入用户名', trigger: 'blur' }
         ],
-        nick_name: [
-          { required: true, message: '请输入昵称', trigger: 'blur' }
-        ],
-        pwd: [
+        password: [
           { required: true, message: '请输入密码', trigger: 'blur' },
           { min: 6, message: '密码不能少于6位', trigger: 'blur' }
         ],
-        confirm_pwd: [
-          { required: true, message: '请确认密码', trigger: 'blur' },
-          {
-            validator: (rule, value, callback) => {
-              if (value !== this.form.pwd) {
-                callback(new Error('两次密码不一致'))
-              } else {
-                callback()
-              }
-            },
-            trigger: 'blur'
-          }
-        ],
-        phone: [
-          { required: true, message: '请输入电话', trigger: 'blur' }
-        ],
-        email: [
-          { required: true, message: '请输入邮箱', trigger: 'blur' },
-          { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }
+        type: [
+          { required: true, message: '请选择用户类型', trigger: 'change' }
+        ]
+      },
+      resetPwdRules: {
+        new_pwd: [
+          { required: true, message: '请输入新密码', trigger: 'blur' },
+          { min: 6, message: '密码不能少于6位', trigger: 'blur' }
         ]
       }
     }
   },
 
+  computed: {
+    deviceListDisplay () {
+      const ids = (this.form.device_list || []).length
+      return ids ? `已选 ${ids} 个设备` : ''
+    }
+  },
+
   created () {
     this.getTableData()
-    this.getRoleList()
   },
 
   methods: {
     async getTableData () {
-      const res = await this.$axios.get('/user/user_list', {
+      const { data: res } = await this.$axios.get('/user/user_list/', {
         params: {
           page: this.page,
           page_size: this.pageSize,
           name: this.searchName
         }
       })
-      if (res.data.code === 200) {
-        this.tableData = res.data.data.user_list
-        this.total = res.data.data.total
+      if (res.code === 200) {
+        this.tableData = res.data.user_list
+        this.total = res.data.total
+      } else {
+        this.$message.error(res.msg || '获取列表失败')
       }
     },
 
@@ -266,15 +274,56 @@ export default {
 
     openAdd () {
       this.isEdit = false
-      this.form = {}
+      this.form = {
+        name: '',
+        password: '',
+        type: 2,
+        device_list: []
+      }
       this.dialogVisible = true
     },
 
     openEdit (row) {
       this.isEdit = true
-      this.form = { ...row }
-      console.log(this.form)
+      this.form = {
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        device_list: [...(row.device_list || [])]
+      }
       this.dialogVisible = true
+    },
+
+    async openDeviceSelect () {
+      const { data: res } = await this.$axios.get('/device/simple_list/')
+      if (res.code === 200) {
+        this.allDeviceList = res.data.device_list || []
+        this.selectedDevices = []
+        this.deviceSelectVisible = true
+        this.$nextTick(() => {
+          if (this.$refs.deviceTable && this.form.device_list && this.form.device_list.length) {
+            this.allDeviceList.forEach(row => {
+              if (this.form.device_list.includes(row.device_id)) {
+                this.$refs.deviceTable.toggleRowSelection(row, true)
+              }
+            })
+          }
+        })
+      }
+    },
+
+    handleDeviceSelectionChange (rows) {
+      this.selectedDevices = rows
+    },
+
+    confirmDeviceSelect () {
+      this.form.device_list = (this.selectedDevices || []).map(d => d.device_id)
+      this.deviceSelectVisible = false
+    },
+
+    closeDeviceSelect () {
+      this.allDeviceList = []
+      this.selectedDevices = []
     },
 
     resetForm () {
@@ -287,15 +336,29 @@ export default {
       this.$refs.userForm.validate(async valid => {
         if (!valid) return
 
-        const api = this.isEdit
-          ? this.$axios.put('/user/register/', this.$qs.stringify(this.form))
-          : this.$axios.post('/user/register/', this.$qs.stringify(this.form))
+        const payload = {
+          name: this.form.name,
+          type: this.form.type,
+          device_list: (this.form.device_list || []).join(',')
+        }
+        if (!this.isEdit) {
+          payload.password = this.form.password
+        }
+        if (this.isEdit) {
+          payload.id = this.form.id
+        }
 
-        const res = await api
-        if (res.data.code === 200) {
+        const api = this.isEdit
+          ? this.$axios.put('/user/register/', this.$qs.stringify(payload))
+          : this.$axios.post('/user/register/', this.$qs.stringify(payload))
+
+        const { data: res } = await api
+        if (res.code === 200) {
           this.$message.success('操作成功')
           this.dialogVisible = false
           this.getTableData()
+        } else {
+          this.$message.error(res.msg || '操作失败')
         }
       })
     },
@@ -303,10 +366,9 @@ export default {
     async deleteUser (row) {
       await this.$confirm(`确认删除用户 ${row.name}？`, '提示', { type: 'warning' })
 
-      const { data: res } = await this.$axios.delete(
-        '/user/register/',
-        { params: { id: row.id } }
-      )
+      const { data: res } = await this.$axios.delete('/user/register/', {
+        params: { id: row.id }
+      })
 
       if (res.code === 200) {
         this.$message.success('删除成功')
@@ -328,21 +390,21 @@ export default {
         { type: 'warning' }
       )
 
-      // 顺序删除，其实要后端提供并发删除接口，然后通过this.selectedRows.map匹配id列表
-      for (const row of this.selectedRows) {
-        await this.$axios.delete(
-          '/user/register/',
-          { params: { id: row.id } }
-        )
-      }
+      const ids = this.selectedRows.map(r => r.id)
+      const { data: res } = await this.$axios.post('/user/batch_delete/', { ids }, {
+        headers: { 'Content-Type': 'application/json' }
+      })
 
-      this.$message.success('批量删除成功')
-      this.getTableData()
+      if (res.code === 200) {
+        this.$message.success('批量删除成功')
+        this.getTableData()
+      } else {
+        this.$message.error(res.msg || '批量删除失败')
+      }
     },
 
     openResetPwd (row) {
-      console.log(row)
-      this.resetPwdform = { id: row.id }
+      this.resetPwdform = { id: row.id, new_pwd: '' }
       this.resetPwdDialogVisible = true
     },
 
@@ -355,11 +417,9 @@ export default {
     submitResetPwd () {
       this.$refs.resetPwdForm.validate(async valid => {
         if (!valid) return
-        console.log(this.resetPwdform)
-        const { data: res } = await this.$axios.get(
-          '/user/reset_password/',
-          { params: this.resetPwdform }
-        )
+        const { data: res } = await this.$axios.put('/user/reset_password/', this.$qs.stringify(this.resetPwdform), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        })
 
         if (res.code === 200) {
           this.$message.success('重置密码成功')
@@ -368,16 +428,7 @@ export default {
           this.$message.error(res.msg || '重置密码失败')
         }
       })
-    },
-
-    // 获取角色列表
-    async getRoleList () {
-      const { data: res } = await this.$axios.get('/role/')
-      if (res.code === 200) {
-        this.roleList = res.data.role_list
-      }
     }
-
   }
 }
 </script>
@@ -422,6 +473,10 @@ export default {
 
 .danger-text {
   color: #f56c6c;
+}
+
+.text-muted {
+  color: #909399;
 }
 
 .pagination {
