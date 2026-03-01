@@ -1,6 +1,5 @@
 <template>
   <div class="dashboard">
-    <!-- 顶部 -->
     <div class="dashboard-header">
       <div>
         <h1>数据概览</h1>
@@ -9,7 +8,6 @@
       <el-button type="primary" icon="el-icon-refresh" @click="refresh">刷新数据</el-button>
     </div>
 
-    <!-- KPI 卡片（参考 style_demo 白卡+蓝橙配色）-->
     <el-row :gutter="24" class="kpi-row">
       <el-col :xs="24" :sm="12" :md="6" v-for="item in kpiList" :key="item.title">
         <div class="kpi-card">
@@ -23,25 +21,23 @@
       </el-col>
     </el-row>
 
-    <!-- 中部：重点区域 -->
     <el-row :gutter="24" class="middle-row">
       <el-col :span="12">
         <div class="panel panel-orange">
-          <h3 class="panel-title">在线设备数</h3>
-          <div class="panel-value">{{ stats.online_devices }}</div>
+          <h3 class="panel-title">设备类型分布</h3>
+          <div class="panel-value">浮标 {{ stats.buoy_count }} / 气象站 {{ stats.station_count }}</div>
           <span class="panel-desc">台</span>
         </div>
       </el-col>
       <el-col :span="12">
         <div class="panel panel-blue">
-          <h3 class="panel-title">用户总数</h3>
-          <div class="panel-value">{{ stats.total_users }}</div>
-          <span class="panel-desc">人</span>
+          <h3 class="panel-title">区域设备分布</h3>
+          <div class="panel-value">南极 {{ areaStats.south }} · 北极 {{ areaStats.north }} · 亚太 {{ areaStats.apac }}</div>
+          <span class="panel-desc">台</span>
         </div>
       </el-col>
     </el-row>
 
-    <!-- 底部：快捷操作 -->
     <el-row :gutter="24" class="quick-row">
       <el-col :span="6" v-for="item in quickList" :key="item.path">
         <div class="quick-card" @click="go(item.path)">
@@ -50,6 +46,16 @@
         </div>
       </el-col>
     </el-row>
+
+    <el-card class="quality-card" shadow="never">
+      <div slot="header">阶段一数据质量看板（POC）</div>
+      <el-row :gutter="16">
+        <el-col :span="6">总数据包：{{ dataQuality.total_data_packets }}</el-col>
+        <el-col :span="6">有效定位包：{{ dataQuality.valid_position_packets }}</el-col>
+        <el-col :span="6">定位有效率：{{ dataQuality.position_valid_rate }}%</el-col>
+        <el-col :span="6">最新包时间：{{ dataQuality.latest_packet_time || '-' }}</el-col>
+      </el-row>
+    </el-card>
   </div>
 </template>
 
@@ -62,11 +68,26 @@ export default {
       stats: {
         total_devices: 0,
         online_devices: 0,
-        total_users: 0
+        offline_devices: 0,
+        total_users: 0,
+        buoy_count: 0,
+        station_count: 0
+      },
+      areaStats: {
+        south: 0,
+        north: 0,
+        apac: 0
+      },
+      dataQuality: {
+        total_data_packets: 0,
+        valid_position_packets: 0,
+        position_valid_rate: 0,
+        latest_packet_time: ''
       },
       kpiList: [
         { title: '设备总数', value: 0, desc: '台', icon: 'el-icon-s-platform' },
         { title: '在线设备', value: 0, desc: '台', icon: 'el-icon-connection' },
+        { title: '离线设备', value: 0, desc: '台', icon: 'el-icon-warning-outline' },
         { title: '用户总数', value: 0, desc: '人', icon: 'el-icon-user-solid' }
       ],
       quickList: [
@@ -81,23 +102,38 @@ export default {
   methods: {
     async getDashboardData () {
       try {
-        const [devRes, userRes] = await Promise.all([
-          this.$axios.get('/device/list/', { params: { page: 1, page_size: 500 } }),
-          this.$axios.get('/user/user_list/', { params: { page: 1, page_size: 1 } })
-        ])
-        const devTotal = devRes.data?.data?.total ?? 0
-        const userTotal = userRes.data?.data?.total ?? 0
-        const online = (devRes.data?.data?.device_list || []).filter(d => d.status === 1).length
-        this.stats = { total_devices: devTotal, online_devices: online, total_users: userTotal }
-        this.kpiList[0].value = devTotal
-        this.kpiList[1].value = online
-        this.kpiList[2].value = userTotal
+        const { data: res } = await this.$axios.get('/device/overview/')
+        if (res.code !== 200) throw new Error(res.msg || '获取概览失败')
+
+        const d = res.data || {}
+        this.stats = {
+          total_devices: d.total_devices || 0,
+          online_devices: d.online_devices || 0,
+          offline_devices: d.offline_devices || 0,
+          total_users: d.total_users || 0,
+          buoy_count: d.buoy_count || 0,
+          station_count: d.station_count || 0
+        }
+
+        this.areaStats = {
+          south: (d.area_stats && d.area_stats.南极) || 0,
+          north: (d.area_stats && d.area_stats.北极) || 0,
+          apac: (d.area_stats && d.area_stats.亚太) || 0
+        }
+
+        this.dataQuality = {
+          total_data_packets: (d.data_quality && d.data_quality.total_data_packets) || 0,
+          valid_position_packets: (d.data_quality && d.data_quality.valid_position_packets) || 0,
+          position_valid_rate: (d.data_quality && d.data_quality.position_valid_rate) || 0,
+          latest_packet_time: (d.data_quality && d.data_quality.latest_packet_time) || ''
+        }
+
+        this.kpiList[0].value = this.stats.total_devices
+        this.kpiList[1].value = this.stats.online_devices
+        this.kpiList[2].value = this.stats.offline_devices
+        this.kpiList[3].value = this.stats.total_users
       } catch (e) {
-        // 接口未就绪时使用模拟数据
-        this.stats = { total_devices: 6, online_devices: 3, total_users: 5 }
-        this.kpiList[0].value = 6
-        this.kpiList[1].value = 3
-        this.kpiList[2].value = 5
+        this.$message.error('概览数据加载失败')
       }
     },
     refresh () {
@@ -145,7 +181,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .kpi-title { color: #64748b; font-size: 14px; }
@@ -166,7 +202,7 @@ export default {
 .panel-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
 
 .panel-title { font-size: 14px; opacity: 0.9; margin-bottom: 8px; }
-.panel-value { font-size: 32px; font-weight: 600; }
+.panel-value { font-size: 24px; font-weight: 600; line-height: 34px; }
 .panel-desc { font-size: 14px; opacity: 0.9; }
 
 .quick-row { margin-top: 24px; }
@@ -180,10 +216,15 @@ export default {
 }
 
 .quick-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   transform: translateY(-2px);
 }
 
 .quick-card i { font-size: 28px; color: #3b82f6; display: block; margin-bottom: 8px; }
 .quick-card span { font-size: 14px; color: #334155; }
+
+.quality-card {
+  margin-top: 20px;
+  border-radius: 12px;
+}
 </style>

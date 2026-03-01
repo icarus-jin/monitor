@@ -138,11 +138,22 @@
       width="600px"
       @close="closeDeviceSelect"
     >
+      <el-input
+        v-model="deviceSearchKeyword"
+        placeholder="输入设备名称或设备ID搜索"
+        clearable
+        prefix-icon="el-icon-search"
+        style="margin-bottom: 12px"
+        @clear="searchDeviceList"
+        @keyup.enter.native="searchDeviceList"
+        @input="searchDeviceList"
+      />
       <el-table
         ref="deviceTable"
-        :data="allDeviceList"
+        :data="filteredDeviceList"
         border
         height="320"
+        row-key="device_id"
         @selection-change="handleDeviceSelectionChange"
       >
         <el-table-column type="selection" width="55" :reserve-selection="true" />
@@ -201,6 +212,8 @@ export default {
       form: {},
       resetPwdform: {},
       allDeviceList: [],
+      filteredDeviceList: [],
+      deviceSearchKeyword: '',
       selectedDevices: [],
 
       rules: {
@@ -295,20 +308,34 @@ export default {
     },
 
     async openDeviceSelect () {
+      this.deviceSearchKeyword = ''
       const { data: res } = await this.$axios.get('/device/simple_list/')
       if (res.code === 200) {
         this.allDeviceList = res.data.device_list || []
+        this.filteredDeviceList = [...this.allDeviceList]
         this.selectedDevices = []
         this.deviceSelectVisible = true
         this.$nextTick(() => {
           if (this.$refs.deviceTable && this.form.device_list && this.form.device_list.length) {
-            this.allDeviceList.forEach(row => {
+            this.filteredDeviceList.forEach(row => {
               if (this.form.device_list.includes(row.device_id)) {
                 this.$refs.deviceTable.toggleRowSelection(row, true)
               }
             })
           }
         })
+      }
+    },
+
+    searchDeviceList () {
+      const kw = (this.deviceSearchKeyword || '').trim().toLowerCase()
+      if (!kw) {
+        this.filteredDeviceList = [...this.allDeviceList]
+      } else {
+        this.filteredDeviceList = this.allDeviceList.filter(d =>
+          (d.device_id || '').toLowerCase().includes(kw) ||
+          (d.device_name || '').toLowerCase().includes(kw)
+        )
       }
     },
 
@@ -322,7 +349,9 @@ export default {
     },
 
     closeDeviceSelect () {
+      this.deviceSearchKeyword = ''
       this.allDeviceList = []
+      this.filteredDeviceList = []
       this.selectedDevices = []
     },
 

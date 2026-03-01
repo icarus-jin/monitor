@@ -4,7 +4,12 @@ from .views import (
     DeviceListView,
     DeviceSimpleListView,
     DeviceDetailView,
-    DeviceBatchDeleteView
+    DeviceBatchDeleteView,
+    DeviceDataIngestView,
+    DeviceDataLatestView,
+    DeviceTrendView,
+    DeviceTrackView,
+    DeviceOverviewView,
 )
 
 urlpatterns = [
@@ -12,4 +17,10 @@ urlpatterns = [
     path('simple_list/', DeviceSimpleListView.as_view(), name='device_simple_list'),
     path('detail/', DeviceDetailView.as_view(), name='device_detail'),
     path('batch_delete/', DeviceBatchDeleteView.as_view(), name='device_batch_delete'),
+
+    path('data/ingest/', DeviceDataIngestView.as_view(), name='device_data_ingest'),
+    path('data/latest/', DeviceDataLatestView.as_view(), name='device_data_latest'),
+    path('data/trend/', DeviceTrendView.as_view(), name='device_data_trend'),
+    path('track/', DeviceTrackView.as_view(), name='device_track'),
+    path('overview/', DeviceOverviewView.as_view(), name='device_overview'),
 ]

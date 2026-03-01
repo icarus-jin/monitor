@@ -7,11 +7,12 @@ import axios from 'axios'
 import qs from 'qs'
 
 Vue.config.productionTip = false
+Vue.config.devtools = false // 禁用 Vue Devtools 提示
 Vue.prototype.$axios = axios
 Vue.prototype.$qs = qs
 
 axios.defaults.baseURL = '/api'
-axios.defaults.timeout = 8000
+axios.defaults.timeout = 5000
 
 // 请求拦截器，设置token
 axios.interceptors.request.use(config => {

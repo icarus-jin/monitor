@@ -83,6 +83,14 @@ DATABASES = {
         'PASSWORD': 'root',
         'HOST': '118.25.113.4',
         'PORT': 3306
+    },
+    'raw': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'jdhydevicedb',
+        'USER': 'root',
+        'PASSWORD': 'root',
+        'HOST': '118.25.113.4',
+        'PORT': 3306
     }
 }
 

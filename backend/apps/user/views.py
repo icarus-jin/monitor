@@ -55,7 +55,7 @@ class UserListView(View):
             page = int(request.GET.get('page', 1))
             page_size = int(request.GET.get('page_size', 10))
             name = (request.GET.get('name') or '').strip()
-            qs = User.objects.filter(is_delete=0).order_by('-create_time')
+            qs = User.objects.filter(is_delete=0).order_by('id')
             if name:
                 qs = qs.filter(name__icontains=name)
             total = qs.count()
