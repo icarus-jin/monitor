@@ -12,6 +12,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.core.paginator import Paginator
 from django.utils import timezone
+from django.http import HttpResponse
+
+import random
+import requests
 
 from apps.user.models import User
 from utils import success, error, logger, token_store
@@ -622,3 +626,50 @@ class DeviceOverviewView(View):
         except Exception as e:
             logger.exception('概览数据异常: %s', e)
             return error(str(e), code=500)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class MapTileProxyView(View):
+    def get(self, request):
+        x = request.GET.get('x')
+        y = request.GET.get('y')
+        z = request.GET.get('z')
+        style = request.GET.get('style', '6')
+        lang = request.GET.get('lang', 'zh_cn')
+
+        if x is None or y is None or z is None:
+            return error('x,y,z不能为空', code=400)
+
+        try:
+            server_idx = random.randint(1, 4)
+            if style == '8':
+                target_url = f'https://webst0{server_idx}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang={lang}&style=8'
+            else:
+                target_url = f'https://webst0{server_idx}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style={style}'
+
+            session = requests.Session()
+            session.trust_env = False  # 忽略系统代理环境变量，避免被 127.0.0.1:7897 等失效代理影响
+            resp = session.get(
+                target_url,
+                timeout=15,
+                headers={
+                    'User-Agent': request.META.get('HTTP_USER_AGENT', 'Mozilla/5.0'),
+                    'Referer': 'https://www.amap.com/'
+                },
+                proxies={'http': None, 'https': None}
+            )
+
+            if resp.status_code != 200:
+                return HttpResponse(
+                    f'上游瓦片服务异常: {resp.status_code}',
+                    status=502,
+                    content_type='text/plain; charset=utf-8'
+                )
+
+            content_type = resp.headers.get('Content-Type', 'image/png')
+            response = HttpResponse(resp.content, content_type=content_type)
+            response['Cache-Control'] = 'public, max-age=3600'
+            return response
+        except Exception as e:
+            logger.exception('地图瓦片代理异常: %s', e)
+            return HttpResponse('地图瓦片代理失败', status=502, content_type='text/plain; charset=utf-8')

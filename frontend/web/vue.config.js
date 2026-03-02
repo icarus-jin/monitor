@@ -1,5 +1,7 @@
 const { defineConfig } = require('@vue/cli-service')
-// 跨域问题解决
+const CopyWebpackPlugin = require('copy-webpack-plugin')
+const path = require('path')
+
 module.exports = defineConfig({
   transpileDependencies: true,
   devServer: {
@@ -12,5 +14,17 @@ module.exports = defineConfig({
         }
       }
     }
+  },
+  configureWebpack: {
+    plugins: [
+      new CopyWebpackPlugin({
+        patterns: [
+          {
+            from: path.resolve(__dirname, 'node_modules/mars3d-cesium/Build/Cesium'),
+            to: 'lib/Cesium'
+          }
+        ]
+      })
+    ]
   }
 })

@@ -10,6 +10,7 @@ from .views import (
     DeviceTrendView,
     DeviceTrackView,
     DeviceOverviewView,
+    MapTileProxyView,
 )
 
 urlpatterns = [
@@ -23,4 +24,5 @@ urlpatterns = [
     path('data/trend/', DeviceTrendView.as_view(), name='device_data_trend'),
     path('track/', DeviceTrackView.as_view(), name='device_track'),
     path('overview/', DeviceOverviewView.as_view(), name='device_overview'),
+    path('map/tile/', MapTileProxyView.as_view(), name='map_tile_proxy'),
 ]
