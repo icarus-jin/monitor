@@ -111,4 +111,12 @@ export default {
   color: #fff;
   font-size: 20px;
 }
+
+/* 隐藏右下角 mars3d/cesium 版权标识区域 */
+::v-deep .cesium-widget-credits,
+::v-deep .mars3d-credit,
+::v-deep .cesium-credit-logoContainer,
+::v-deep .cesium-credit-textContainer {
+  display: none !important;
+}
 </style>
