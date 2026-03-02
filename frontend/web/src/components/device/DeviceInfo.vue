@@ -5,60 +5,61 @@
       <el-breadcrumb-item>设备管理</el-breadcrumb-item>
       <el-breadcrumb-item>设备列表</el-breadcrumb-item>
     </el-breadcrumb>
+
     <el-card shadow="never" class="filter-card">
       <el-row :gutter="12" class="toolbar">
-      <el-col :span="8">
-        <el-input v-model="searchKeyword" placeholder="输入设备名称或设备ID搜索" clearable @clear="search" @keyup.enter.native="search">
-          <el-button slot="append" icon="el-icon-search" @click="search" />
-        </el-input>
-      </el-col>
-      <el-col :span="6">
-        <el-input v-model="searchOwnership" placeholder="输入归属区域（ownership）过滤" clearable @clear="search" @keyup.enter.native="search">
-          <el-button slot="append" icon="el-icon-search" @click="search" />
-        </el-input>
-      </el-col>
-      <el-col :span="4">
-        <el-select v-model="searchStatus" placeholder="在线状态" clearable @change="search">
-          <el-option label="在线" value="1" />
-          <el-option label="离线" value="0" />
-        </el-select>
-      </el-col>
-      <el-col :span="6" class="toolbar-buttons"></el-col>
-    </el-row>
+        <el-col :span="8">
+          <el-input v-model="searchKeyword" placeholder="输入设备名称或设备ID搜索" clearable @clear="search" @keyup.enter.native="search">
+            <el-button slot="append" icon="el-icon-search" @click="search" />
+          </el-input>
+        </el-col>
+        <el-col :span="6">
+          <el-input v-model="searchOwnership" placeholder="输入归属区域过滤" clearable @clear="search" @keyup.enter.native="search">
+            <el-button slot="append" icon="el-icon-search" @click="search" />
+          </el-input>
+        </el-col>
+        <el-col :span="4">
+          <el-select v-model="searchStatus" placeholder="在线状态" clearable @change="search">
+            <el-option label="在线" value="1" />
+            <el-option label="离线" value="0" />
+          </el-select>
+        </el-col>
+        <el-col :span="6" class="toolbar-buttons"></el-col>
+      </el-row>
     </el-card>
 
     <el-card shadow="never" class="table-card">
-    <el-table :data="tableData" border class="device-table" highlight-current-row>
-      <el-table-column prop="id" label="ID" width="70" />
-      <el-table-column prop="device_id" label="设备ID" width="130" />
-      <el-table-column prop="device_name" label="设备名称" min-width="140" />
-      <el-table-column prop="ownership" label="归属区域" min-width="140" />
-      <el-table-column prop="last_report_time" label="最后上报时间" width="170" />
-      <el-table-column prop="status_name" label="状态" width="90">
-        <template slot-scope="scope">
-          <el-tag :type="scope.row.status === 1 ? 'success' : 'info'" size="small">
-            {{ scope.row.status_name }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
-        <template slot-scope="scope">
-          <el-button type="text" @click="showData(scope.row)">详情</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <el-table v-loading="tableLoading" :data="tableData" border class="device-table" highlight-current-row empty-text="暂无设备数据">
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="device_id" label="设备ID" width="130" />
+        <el-table-column prop="device_name" label="设备名称" min-width="140" />
+        <el-table-column prop="ownership" label="归属区域" min-width="140" />
+        <el-table-column prop="last_report_time" label="最后上报时间" width="170" />
+        <el-table-column prop="status_name" label="状态" width="90">
+          <template slot-scope="scope">
+            <el-tag :type="scope.row.status === 1 ? 'success' : 'info'" size="small">
+              {{ scope.row.status_name }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template slot-scope="scope">
+            <el-button type="text" @click="showData(scope.row)">详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
 
-    <el-pagination
-      class="pagination"
-      background
-      layout="total, sizes, prev, pager, next, jumper"
-      :current-page="page"
-      :page-size="pageSize"
-      :page-sizes="[10, 20, 50, 100]"
-      :total="total"
-      @size-change="handleSizeChange"
-      @current-change="handleCurrentChange"
-    />
+      <el-pagination
+        class="pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :current-page="page"
+        :page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        @size-change="handleSizeChange"
+        @current-change="handleCurrentChange"
+      />
     </el-card>
 
     <el-dialog :visible.sync="dataVisible" width="1200px" top="3vh" class="device-detail-dialog">
@@ -69,82 +70,80 @@
         </div>
       </template>
       <el-row :gutter="16" class="detail-grid">
-        <!-- 最新数据 -->
         <el-col :span="24">
-      <el-card shadow="never" class="inner-card">
-        <div slot="header" class="latest-header">
-          <span>最新数据</span>
-        </div>
+          <el-card shadow="never" class="inner-card">
+            <div slot="header" class="latest-header">
+              <span>最新数据</span>
+            </div>
 
-        <div v-if="keyFieldList.length" class="field-list key-fields">
-          <div v-for="item in keyFieldList" :key="item.field" class="field-item">
-            <span class="field-label">{{ formatFieldLabel(item.label) }}：</span>
-            <span class="field-value">{{ showValue(item.value) }}</span>
-          </div>
-        </div>
-
-        <el-empty v-else description="暂无最新数据" :image-size="60" />
-
-        <el-collapse v-if="otherFieldList.length" class="more-collapse">
-          <el-collapse-item name="more">
-            <template slot="title">
-              <span class="collapse-title">更多字段（{{ otherFieldList.length }}项）</span>
-            </template>
-            <div class="field-list other-fields">
-              <div v-for="item in otherFieldList" :key="item.field" class="field-item">
+            <div v-if="keyFieldList.length" class="field-list key-fields">
+              <div v-for="item in keyFieldList" :key="item.field" class="field-item">
                 <span class="field-label">{{ formatFieldLabel(item.label) }}：</span>
                 <span class="field-value">{{ showValue(item.value) }}</span>
               </div>
             </div>
-          </el-collapse-item>
-        </el-collapse>
-      </el-card>
+
+            <el-empty v-else description="暂无最新数据" :image-size="60" />
+
+            <el-collapse v-if="otherFieldList.length" class="more-collapse">
+              <el-collapse-item name="more">
+                <template slot="title">
+                  <span class="collapse-title">更多字段（{{ otherFieldList.length }}项）</span>
+                </template>
+                <div class="field-list other-fields">
+                  <div v-for="item in otherFieldList" :key="item.field" class="field-item">
+                    <span class="field-label">{{ formatFieldLabel(item.label) }}：</span>
+                    <span class="field-value">{{ showValue(item.value) }}</span>
+                  </div>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+          </el-card>
         </el-col>
 
-        <!-- 设备详细数据 -->
         <el-col :span="24">
-      <el-card shadow="never" class="inner-card">
-        <div slot="header" class="trend-header">
-          <span>设备详细数据</span>
-          <div class="trend-tools">
-            <el-radio-group v-model="trendRangeType" size="mini" @change="handleTrendRangeChange">
-              <el-radio-button label="1d">1天</el-radio-button>
-              <el-radio-button label="7d">7天</el-radio-button>
-              <el-radio-button label="30d">30天</el-radio-button>
-              <el-radio-button label="1y">1年</el-radio-button>
-              <el-radio-button label="custom">自定义</el-radio-button>
-            </el-radio-group>
-            <el-date-picker
-              v-if="trendRangeType === 'custom'"
-              v-model="trendDateRange"
-              type="daterange"
-              unlink-panels
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              value-format="yyyy-MM-dd"
-              size="mini"
-              style="margin-left: 8px;"
-              @change="handleCustomDateChange"
+          <el-card shadow="never" class="inner-card">
+            <div slot="header" class="trend-header">
+              <span>设备详细数据</span>
+              <div class="trend-tools">
+                <el-radio-group v-model="trendRangeType" size="mini" @change="handleTrendRangeChange">
+                  <el-radio-button label="1d">1天</el-radio-button>
+                  <el-radio-button label="7d">7天</el-radio-button>
+                  <el-radio-button label="30d">30天</el-radio-button>
+                  <el-radio-button label="1y">1年</el-radio-button>
+                  <el-radio-button label="custom">自定义</el-radio-button>
+                </el-radio-group>
+                <el-date-picker
+                  v-if="trendRangeType === 'custom'"
+                  v-model="trendDateRange"
+                  type="daterange"
+                  unlink-panels
+                  range-separator="至"
+                  start-placeholder="开始日期"
+                  end-placeholder="结束日期"
+                  value-format="yyyy-MM-dd"
+                  size="mini"
+                  style="margin-left: 8px;"
+                  @change="handleCustomDateChange"
+                />
+              </div>
+            </div>
+            <el-table :data="trendPoints" size="mini" height="260" border class="trend-table" empty-text="暂无趋势数据">
+              <el-table-column prop="time" label="数据包解析时间" width="170" fixed="left" show-overflow-tooltip />
+              <el-table-column v-for="col in sortedTrendColumns" :key="col.field" :prop="col.field" :label="formatFieldLabel(col.label)" min-width="120" show-overflow-tooltip />
+            </el-table>
+            <el-pagination
+              class="pagination"
+              background
+              layout="total, sizes, prev, pager, next"
+              :current-page="trendPage"
+              :page-size="trendPageSize"
+              :page-sizes="[50, 100, 200, 500]"
+              :total="trendTotal"
+              @size-change="handleTrendSizeChange"
+              @current-change="handleTrendPageChange"
             />
-          </div>
-        </div>
-        <el-table :data="trendPoints" size="mini" height="260" border class="trend-table">
-          <el-table-column prop="time" label="数据包解析时间" width="170" fixed="left" show-overflow-tooltip />
-          <el-table-column v-for="col in sortedTrendColumns" :key="col.field" :prop="col.field" :label="formatFieldLabel(col.label)" min-width="120" show-overflow-tooltip />
-        </el-table>
-        <el-pagination
-          class="pagination"
-          background
-          layout="total, sizes, prev, pager, next"
-          :current-page="trendPage"
-          :page-size="trendPageSize"
-          :page-sizes="[50, 100, 200, 500]"
-          :total="trendTotal"
-          @size-change="handleTrendSizeChange"
-          @current-change="handleTrendPageChange"
-        />
-      </el-card>
+          </el-card>
         </el-col>
       </el-row>
     </el-dialog>
@@ -157,6 +156,7 @@ export default {
   data () {
     return {
       tableData: [],
+      tableLoading: false,
       total: 0,
       page: 1,
       pageSize: 10,
@@ -184,12 +184,9 @@ export default {
     },
     sortedTrendColumns () {
       if (!this.trendColumns.length) return []
-      // 过滤掉 time 和 packet_time 字段（第一列已显示）
       const filteredColumns = this.trendColumns.filter(col => col.field !== 'time' && col.field !== 'packet_time')
       if (!this.keyFieldList.length) return filteredColumns
-      // 获取关键字段的字段名列表
       const keyFields = this.keyFieldList.map(item => item.field)
-      // 先展示关键字段，然后展示其他字段
       const keyCols = filteredColumns.filter(col => keyFields.includes(col.field))
       const otherCols = filteredColumns.filter(col => !keyFields.includes(col.field))
       return [...keyCols, ...otherCols]
@@ -222,7 +219,6 @@ export default {
           startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0)
           break
         case 'custom':
-          // 自定义模式，不自动更新日期范围
           return
         default:
           startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0)
@@ -243,7 +239,6 @@ export default {
         this.updateTrendDateRange()
         this.loadTrendData()
       } else {
-        // 切换到自定义模式时，初始化日期范围（默认最近7天）
         const now = new Date()
         const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
         const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000)
@@ -268,40 +263,39 @@ export default {
     },
     formatFieldLabel (label) {
       if (!label) return label
-      // 特定字段名称映射（使用 Map 避免 ESLint quote-props 问题）
       const labelMap = new Map([
         ['数据库入库时间，自动生成', '入库时间'],
         ['本地是否同步标志位，0：未同步；1：已经同步', '本地同步标志']
       ])
       if (labelMap.has(label)) return labelMap.get(label)
-      // 通用规则：去除逗号（中文和英文）及后面的说明
       let formatted = label.split('，')[0].split(',')[0].trim()
-      // 去除开头的"y"等异常字符（可能是数据问题）
       formatted = formatted.replace(/^[yY]\s*/, '')
-      // 特殊处理：铱星序列号 -> 铱星编号
       if (formatted === '铱星序列号') return '铱星编号'
-      // 如果包含冒号说明（但不是标志类字段），去除说明部分
-      // 标志类字段保留（如"纬度标志，0：北纬；1：南纬" -> "纬度标志"）
       if (formatted.includes('：') && !formatted.includes('标志')) {
         formatted = formatted.split('：')[0].trim()
       }
       return formatted || label
     },
     async getTableData () {
-      const { data: res } = await this.$axios.get('/device/list/', {
-        params: {
-          page: this.page,
-          page_size: this.pageSize,
-          keyword: this.searchKeyword,
-          ownership: this.searchOwnership,
-          status: this.searchStatus
+      this.tableLoading = true
+      try {
+        const { data: res } = await this.$axios.get('/device/list/', {
+          params: {
+            page: this.page,
+            page_size: this.pageSize,
+            keyword: this.searchKeyword,
+            ownership: this.searchOwnership,
+            status: this.searchStatus
+          }
+        })
+        if (res.code === 200) {
+          this.tableData = res.data.device_list
+          this.total = res.data.total
+        } else {
+          this.$message.error(res.msg || '获取列表失败')
         }
-      })
-      if (res.code === 200) {
-        this.tableData = res.data.device_list
-        this.total = res.data.total
-      } else {
-        this.$message.error(res.msg || '获取列表失败')
+      } finally {
+        this.tableLoading = false
       }
     },
     search () {
@@ -317,14 +311,8 @@ export default {
       this.page = page
       this.getTableData()
     },
-
-    /**
-     * 显示设备详情
-     * 企业级特性：错误处理、加载状态、数据校验
-     */
     async showData (row) {
       try {
-        // 1. 重置状态
         this.currentDevice = row
         this.latestFieldList = []
         this.keyFieldList = []
@@ -336,21 +324,17 @@ export default {
         this.trendTotal = 0
         this.trendRangeType = '1y'
 
-        // 2. 显示对话框
         this.dataVisible = true
         this.updateTrendDateRange()
 
-        // 3. 加载最新数据
         const latestRes = await this.$axios.get('/device/data/latest/', { params: { device_id: row.device_id } })
 
-        // 4. 处理最新数据
         if (latestRes.data.code === 200) {
           const d = latestRes.data.data || {}
           this.latestFieldList = d.field_list || []
           this.splitLatestFields()
         }
 
-        // 5. 加载趋势数据
         await this.loadTrendData()
       } catch (error) {
         console.error('[showData] 加载设备详情失败:', error)
@@ -405,10 +389,6 @@ export default {
 
 <style scoped>
 .device-page { padding: 22px; min-height: 100vh; font-size: 14px; background: #f1f5f9; }
-.page-hero { background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%); border: 1px solid #dbeafe; border-radius: 14px; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-title { margin: 0; font-size: 22px; font-weight: 700; color: #0f172a; }
-.page-subtitle { margin: 6px 0 0; color: #64748b; font-size: 13px; }
-.mode-tag { border-radius: 999px; }
 .breadcrumb { margin-bottom: 14px; }
 .filter-card, .table-card, .summary-card, .inner-card { border-radius: 12px; border: 1px solid #e2e8f0; }
 .filter-card { margin-bottom: 12px; }
@@ -423,13 +403,9 @@ export default {
 .dialog-title-wrap { display: flex; align-items: baseline; gap: 10px; }
 .dialog-title-main { font-size: 14px; font-weight: 600; color: #1f2937; }
 .dialog-title-sub { font-size: 12px; color: #475569; font-weight: 600; }
-.desc-box { margin-bottom: 0; }
-.detail-meta ::v-deep .el-descriptions-item__label,
-.detail-meta ::v-deep .el-descriptions-item__content { font-size: 12px; }
 .inner-card { margin-bottom: 12px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
 .latest-header { display: flex; justify-content: space-between; align-items: center; }
 .latest-header span:first-child { font-size: 13px; font-weight: 600; color: #1f2937; }
-.latest-subtitle { color: #94a3b8; font-size: 11px; }
 .field-list { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .field-item { display: flex; align-items: baseline; flex: 0 0 calc(25% - 12px); min-width: 140px; line-height: 1.6; }
 .field-label { color: #64748b; font-size: 11px; font-weight: 500; white-space: nowrap; flex-shrink: 0; }

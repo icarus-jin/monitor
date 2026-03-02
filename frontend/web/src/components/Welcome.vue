@@ -1,14 +1,7 @@
 <template>
-  <div class="dashboard">
-    <div class="dashboard-header">
-      <h1>地图展示</h1>
-      <p>3D地球与地名注记</p>
-    </div>
-
-    <div class="map-wrapper">
-      <div id="mars3dContainer" class="map-container"></div>
-      <div v-if="map3dLoading" class="loading-overlay">Loading...</div>
-    </div>
+  <div class="welcome-page">
+    <div id="mars3dContainer" class="map-container"></div>
+    <div v-if="map3dLoading" class="loading-overlay">Loading...</div>
   </div>
 </template>
 
@@ -43,9 +36,11 @@ export default {
 
         const mapOptions = {
           scene: {
-            center: { lat: 31.84, lng: 117.22, alt: 2500000, heading: 0, pitch: -55 },
-            fxaa: true,
-            highDynamicRange: true
+            center: { lat: 31.84, lng: 117.22, alt: 2800000, heading: 0, pitch: -60 },
+            fxaa: false,
+            highDynamicRange: false,
+            requestRenderMode: true,
+            maximumRenderTimeChange: Infinity
           },
           basemaps: [
             {
@@ -79,7 +74,7 @@ export default {
         }).catch((err) => {
           console.error('[mars3d] 地图加载失败', err)
           this.map3dLoading = false
-          this.$message.error('地图加载失败，请检查静态资源后重试')
+          this.$message.error('地图加载失败，请稍后重试')
         })
       } catch (error) {
         console.error('[mars3d] 初始化失败', error)
@@ -92,47 +87,23 @@ export default {
 </script>
 
 <style scoped>
-.dashboard {
-  min-height: calc(100vh - 120px);
-}
-
-.dashboard-header {
-  margin-bottom: 12px;
-}
-
-.dashboard-header h1 {
-  margin: 0;
-  font-size: 20px;
-  color: #1e293b;
-}
-
-.dashboard-header p {
-  margin: 6px 0 0;
-  color: #64748b;
-  font-size: 14px;
-}
-
-.map-wrapper {
+.welcome-page {
   position: relative;
-  width: 100%;
-  height: calc(100vh - 220px);
-  min-height: 620px;
-  border-radius: 10px;
+  height: calc(100vh - 140px);
+  min-height: 640px;
+  border-radius: 14px;
   overflow: hidden;
+  background: #000;
 }
 
 .map-container {
   width: 100%;
   height: 100%;
-  background: #000;
 }
 
 .loading-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;

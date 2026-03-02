@@ -3,24 +3,28 @@
     <el-header class="header">
       <div class="header-left">
         <img src="../assets/logo.png" class="logo" />
-        <span class="title">气象监测管理系统</span>
+        <div>
+          <div class="title">气象监测管理系统</div>
+          <div class="subtitle">设备数据可视化平台</div>
+        </div>
       </div>
       <div class="header-right">
-        <span class="user">{{ username }}</span>
-        <el-divider direction="vertical"></el-divider>
-        <el-button type="text" class="logout-btn" @click="logout">退出</el-button>
+        <div class="user-meta">
+          <div class="user-name">{{ username || '未登录用户' }}</div>
+        </div>
+        <el-button type="text" class="logout-btn" @click="logout">安全退出</el-button>
       </div>
     </el-header>
 
     <el-container>
-      <el-aside class="aside" width="220px">
+      <el-aside class="aside" :width="asideWidth">
         <el-menu
           router
           :default-active="$route.path"
           :collapse="isCollapse"
           background-color="#ffffff"
           text-color="#475569"
-          active-text-color="#3b82f6"
+          active-text-color="#2563eb"
         >
           <el-submenu v-for="item in menuList" :key="item.id" :index="String(item.id)">
             <template slot="title">
@@ -53,7 +57,7 @@ export default {
   data () {
     return {
       username: window.sessionStorage.getItem('username'),
-      isCollapse: false,
+      isCollapse: true,
       menuList: [],
       iconMap: {
         2: 'el-icon-user-solid',
@@ -64,7 +68,8 @@ export default {
     }
   },
   computed: {
-    showCard () { return !this.$route.meta.noCard }
+    showCard () { return !this.$route.meta.noCard },
+    asideWidth () { return this.isCollapse ? '72px' : '220px' }
   },
   methods: {
     getMenuList () {
@@ -78,80 +83,77 @@ export default {
       window.sessionStorage.removeItem('token')
       window.sessionStorage.removeItem('username')
       this.$router.push('/login')
-      this.$message.success('退出成功')
+      this.$message.success('已退出登录')
     }
   }
 }
 </script>
 
 <style>
-html, body, #app { height: 100%; margin: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial; }
-
-.home-container { height: 100%; background-color: #f1f5f9; }
+.home-container { height: 100%; background: #edf2f7; }
 
 .header {
-  height: 60px;
-  background: #fff;
+  height: 64px;
+  background: linear-gradient(90deg, #ffffff 0%, #f8fbff 100%);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 24px;
   border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
 }
 
-.header-left { display: flex; align-items: center; }
-.logo { height: 36px; margin-right: 12px; }
-.title { font-size: 18px; font-weight: 600; color: #1e293b; }
+.header-left { display: flex; align-items: center; gap: 10px; }
+.logo { height: 34px; }
+.title { font-size: 17px; font-weight: 700; color: #0f172a; line-height: 1; }
+.subtitle { font-size: 12px; color: #64748b; margin-top: 4px; }
 
-.header-right { display: flex; align-items: center; gap: 12px; }
-.user { color: #475569; font-size: 14px; }
+.header-right { display: flex; align-items: center; gap: 14px; }
+.user-meta { line-height: 1.15; text-align: right; }
+.user-name { color: #1e293b; font-size: 13px; font-weight: 600; }
+.user-role { color: #94a3b8; font-size: 11px; margin-top: 2px; }
 .logout-btn { color: #64748b; padding: 0; }
-.logout-btn:hover { color: #3b82f6; }
+.logout-btn:hover { color: #2563eb; }
 
 .aside {
   background: #fff;
   padding-top: 12px;
   border-right: 1px solid #e2e8f0;
+  transition: width 0.2s ease;
 }
-
 .el-menu { border-right: none !important; }
 
 .el-submenu__title {
-  height: 48px;
-  line-height: 48px;
-  margin: 4px 12px;
-  padding-left: 18px !important;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #475569 !important;
+  height: 46px;
+  line-height: 46px;
+  margin: 4px 10px;
+  padding-left: 16px !important;
+  border-radius: 10px;
 }
-
-.el-submenu__title:hover { background: #f1f5f9 !important; color: #1e293b !important; }
+.el-submenu__title:hover { background: #f1f5f9 !important; }
 
 .el-menu .el-menu-item {
-  height: 42px;
-  line-height: 42px;
-  margin: 4px 16px;
-  padding-left: 42px !important;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #64748b !important;
+  height: 40px;
+  line-height: 40px;
+  margin: 4px 14px;
+  padding-left: 40px !important;
+  border-radius: 10px;
 }
+.el-menu .el-menu-item:hover { background: #f1f5f9 !important; }
+.el-menu .el-menu-item.is-active { background: #eff6ff !important; color: #2563eb !important; }
 
-.el-menu .el-menu-item:hover { background: #f1f5f9 !important; color: #1e293b !important; }
-.el-menu .el-menu-item.is-active { background: #eff6ff !important; color: #3b82f6 !important; }
-
-.menu-icon { margin-right: 10px; font-size: 18px; color: #64748b; }
+.menu-icon { margin-right: 10px; font-size: 17px; color: #64748b; }
 .submenu-icon { margin-right: 10px; font-size: 14px; color: #94a3b8; }
-.el-menu-item.is-active .submenu-icon { color: #3b82f6; }
+.el-menu-item.is-active .submenu-icon { color: #2563eb; }
 
-.main { background-color: #f1f5f9; padding: 20px; }
+.main { background-color: #edf2f7; padding: 18px; }
 
 .content-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 24px;
-  min-height: 400px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  border-radius: 14px;
+  padding: 20px;
+  min-height: 420px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 </style>

@@ -1,96 +1,95 @@
 <template>
   <div class="user-page">
-
-    <!-- 面包屑 -->
     <el-breadcrumb separator-class="el-icon-arrow-right" class="breadcrumb">
       <el-breadcrumb-item to="/home">首页</el-breadcrumb-item>
       <el-breadcrumb-item>用户管理</el-breadcrumb-item>
       <el-breadcrumb-item>用户列表</el-breadcrumb-item>
     </el-breadcrumb>
 
-    <!-- 工具栏 -->
-    <el-row :gutter="10" class="toolbar">
-      <el-col :span="8">
-        <el-input
-          v-model="searchName"
-          placeholder="请输入用户名"
-          clearable
-          @clear="search"
-        >
+    <el-card shadow="never" class="toolbar-card">
+      <el-row :gutter="10" class="toolbar">
+        <el-col :span="8">
+          <el-input
+            v-model="searchName"
+            placeholder="请输入用户名"
+            clearable
+            @clear="search"
+          >
+            <el-button
+              slot="append"
+              icon="el-icon-search"
+              @click="search"
+            />
+          </el-input>
+        </el-col>
+
+        <el-col :span="8" class="toolbar-buttons">
           <el-button
-            slot="append"
-            icon="el-icon-search"
-            @click="search"
-          />
-        </el-input>
-      </el-col>
+            type="primary"
+            icon="el-icon-circle-plus-outline"
+            @click="openAdd"
+          >
+            新增用户
+          </el-button>
 
-      <el-col :span="8" class="toolbar-buttons">
-        <el-button
-          type="primary"
-          icon="el-icon-circle-plus-outline"
-          @click="openAdd"
-        >
-          新增用户
-        </el-button>
+          <el-button
+            type="danger"
+            icon="el-icon-delete"
+            plain
+            @click="batchDelete"
+          >
+            批量删除
+          </el-button>
+        </el-col>
+      </el-row>
+    </el-card>
 
-        <el-button
-          type="danger"
-          icon="el-icon-delete"
-          plain
-          @click="batchDelete"
-        >
-          批量删除
-        </el-button>
-      </el-col>
-    </el-row>
+    <el-card shadow="never" class="table-card">
+      <el-table
+        v-loading="tableLoading"
+        :data="tableData"
+        border
+        class="user-table"
+        highlight-current-row
+        empty-text="暂无用户数据"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="55" />
 
-    <!-- 用户表格 -->
-    <el-table
-      :data="tableData"
-      border
-      class="user-table"
-      style="margin-top: 20px"
-      highlight-current-row
-      @selection-change="handleSelectionChange"
-    >
-      <el-table-column type="selection" width="55" />
+        <el-table-column prop="id" label="用户ID" width="80" />
+        <el-table-column prop="name" label="用户名" />
+        <el-table-column prop="type_name" label="用户类型" width="120" />
+        <el-table-column prop="device_list_str" label="关联设备" min-width="200">
+          <template slot-scope="scope">
+            <span v-if="scope.row.device_list && scope.row.device_list.length">
+              {{ scope.row.device_list.join(', ') }}
+            </span>
+            <span v-else class="text-muted">暂无</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="create_time" label="创建时间" width="180" />
+        <el-table-column label="操作" width="220" fixed="right">
+          <template slot-scope="scope">
+            <el-button type="text" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button type="text" class="danger-text" @click="deleteUser(scope.row)">删除</el-button>
+            <el-button type="text" @click="openResetPwd(scope.row)">重置密码</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
 
-      <el-table-column prop="id" label="用户ID" width="80" />
-      <el-table-column prop="name" label="用户名" />
-      <el-table-column prop="type_name" label="用户类型" width="120" />
-      <el-table-column prop="device_list_str" label="关联设备" min-width="200">
-        <template slot-scope="scope">
-          <span v-if="scope.row.device_list && scope.row.device_list.length">
-            {{ scope.row.device_list.join(', ') }}
-          </span>
-          <span v-else class="text-muted">暂无</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="create_time" label="创建时间" width="180" />
-      <el-table-column label="操作" width="220" fixed="right">
-        <template slot-scope="scope">
-          <el-button type="text" @click="openEdit(scope.row)">编辑</el-button>
-          <el-button type="text" class="danger-text" @click="deleteUser(scope.row)">删除</el-button>
-          <el-button type="text" @click="openResetPwd(scope.row)">重置密码</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <el-pagination
+        class="pagination"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :current-page="page"
+        :page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        @size-change="handleSizeChange"
+        @current-change="handleCurrentChange"
+      />
+    </el-card>
 
-    <!-- 分页 -->
-    <el-pagination
-      class="pagination"
-      background
-      layout="total, sizes, prev, pager, next, jumper"
-      :current-page="page"
-      :page-size="pageSize"
-      :page-sizes="[10, 20, 50, 100]"
-      :total="total"
-      @size-change="handleSizeChange"
-      @current-change="handleCurrentChange"
-    />
-
-    <!-- 新增 / 编辑弹窗 -->
     <el-dialog
       :title="isEdit ? '编辑用户' : '新增用户'"
       :visible.sync="dialogVisible"
@@ -131,7 +130,6 @@
       </div>
     </el-dialog>
 
-    <!-- 设备多选弹窗 -->
     <el-dialog
       title="选择关联设备"
       :visible.sync="deviceSelectVisible"
@@ -166,7 +164,6 @@
       </div>
     </el-dialog>
 
-    <!-- 重置密码弹窗 -->
     <el-dialog
       title="重置密码"
       :visible.sync="resetPwdDialogVisible"
@@ -194,12 +191,12 @@
 </template>
 
 <script>
-
 /* eslint vue/multi-word-component-names: "off" */
 export default {
   data () {
     return {
       tableData: [],
+      tableLoading: false,
       selectedRows: [],
       total: 0,
       page: 1,
@@ -250,18 +247,23 @@ export default {
 
   methods: {
     async getTableData () {
-      const { data: res } = await this.$axios.get('/user/user_list/', {
-        params: {
-          page: this.page,
-          page_size: this.pageSize,
-          name: this.searchName
+      this.tableLoading = true
+      try {
+        const { data: res } = await this.$axios.get('/user/user_list/', {
+          params: {
+            page: this.page,
+            page_size: this.pageSize,
+            name: this.searchName
+          }
+        })
+        if (res.code === 200) {
+          this.tableData = res.data.user_list
+          this.total = res.data.total
+        } else {
+          this.$message.error(res.msg || '获取列表失败')
         }
-      })
-      if (res.code === 200) {
-        this.tableData = res.data.user_list
-        this.total = res.data.total
-      } else {
-        this.$message.error(res.msg || '获取列表失败')
+      } finally {
+        this.tableLoading = false
       }
     },
 
@@ -393,7 +395,7 @@ export default {
     },
 
     async deleteUser (row) {
-      await this.$confirm(`确认删除用户 ${row.name}？`, '提示', { type: 'warning' })
+      await this.$confirm(`确认删除用户「${row.name}」吗？该操作不可撤销。`, '删除确认', { type: 'warning' })
 
       const { data: res } = await this.$axios.delete('/user/register/', {
         params: { id: row.id }
@@ -409,13 +411,13 @@ export default {
 
     async batchDelete () {
       if (!this.selectedRows.length) {
-        this.$message.warning('请选择要删除的用户')
+        this.$message.warning('请先选择要删除的用户')
         return
       }
 
       await this.$confirm(
-        `确认删除选中的 ${this.selectedRows.length} 个用户？`,
-        '批量删除',
+        `确认删除选中的 ${this.selectedRows.length} 个用户吗？该操作不可撤销。`,
+        '批量删除确认',
         { type: 'warning' }
       )
 
@@ -464,40 +466,50 @@ export default {
 
 <style scoped>
 .user-page {
-  background: #f5f6fa;
-  padding: 20px;
-  min-height: 100vh;
+  background: #f1f5f9;
+  padding: 18px;
+  min-height: calc(100vh - 120px);
   font-size: 14px;
-  color: #333;
+  color: #334155;
 }
 
 .breadcrumb {
-  margin-bottom: 20px;
+  margin-bottom: 14px;
+}
+
+.toolbar-card {
+  margin-bottom: 12px;
 }
 
 .toolbar {
-  margin-bottom: 10px;
+  margin-bottom: 0;
   display: flex;
   align-items: center;
 }
 
 .toolbar-buttons {
   display: flex;
+  justify-content: flex-end;
   gap: 10px;
 }
 
+.table-card {
+  margin-bottom: 12px;
+}
+
 .user-table ::v-deep th {
-  background: #fff;
-  color: #606266;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
 }
 
 .user-table ::v-deep td {
   background: #fff;
-  color: #333;
+  color: #334155;
 }
 
-.user-table ::v-deep tr:hover {
-  background: #e6f7ff;
+.user-table ::v-deep tr:hover td {
+  background: #f8fbff;
 }
 
 .danger-text {
@@ -505,11 +517,12 @@ export default {
 }
 
 .text-muted {
-  color: #909399;
+  color: #94a3b8;
 }
 
 .pagination {
-  margin-top: 20px;
+  margin-top: 16px;
+  text-align: right;
 }
 
 .dialog-footer {

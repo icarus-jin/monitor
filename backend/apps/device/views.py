@@ -5,6 +5,8 @@
 - 设备/业务数据：jdhydevicedb 原始库
 """
 from datetime import datetime
+import time
+from threading import Lock
 
 from django.db import connections
 from django.views import View
@@ -630,6 +632,48 @@ class DeviceOverviewView(View):
 
 @method_decorator(csrf_exempt, name='dispatch')
 class MapTileProxyView(View):
+    _CACHE_TTL_SECONDS = 1800
+    _cache = {}
+    _cache_lock = Lock()
+
+    @classmethod
+    def _cache_key(cls, x, y, z, style, lang):
+        return f'{style}:{lang}:{z}:{x}:{y}'
+
+    @classmethod
+    def _get_from_cache(cls, key):
+        now = time.time()
+        with cls._cache_lock:
+            item = cls._cache.get(key)
+            if not item:
+                return None
+            if now - item['ts'] > cls._CACHE_TTL_SECONDS:
+                cls._cache.pop(key, None)
+                return None
+            return item
+
+    @classmethod
+    def _set_cache(cls, key, content, content_type):
+        with cls._cache_lock:
+            cls._cache[key] = {
+                'ts': time.time(),
+                'content': content,
+                'content_type': content_type
+            }
+
+    def _fetch(self, request, target_url):
+        session = requests.Session()
+        session.trust_env = False
+        return session.get(
+            target_url,
+            timeout=(3, 8),
+            headers={
+                'User-Agent': request.META.get('HTTP_USER_AGENT', 'Mozilla/5.0'),
+                'Referer': 'https://www.amap.com/'
+            },
+            proxies={'http': None, 'https': None}
+        )
+
     def get(self, request):
         x = request.GET.get('x')
         y = request.GET.get('y')
@@ -640,36 +684,41 @@ class MapTileProxyView(View):
         if x is None or y is None or z is None:
             return error('x,y,z不能为空', code=400)
 
-        try:
-            server_idx = random.randint(1, 4)
-            if style == '8':
-                target_url = f'https://webst0{server_idx}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang={lang}&style=8'
-            else:
-                target_url = f'https://webst0{server_idx}.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&style={style}'
-
-            session = requests.Session()
-            session.trust_env = False  # 忽略系统代理环境变量，避免被 127.0.0.1:7897 等失效代理影响
-            resp = session.get(
-                target_url,
-                timeout=15,
-                headers={
-                    'User-Agent': request.META.get('HTTP_USER_AGENT', 'Mozilla/5.0'),
-                    'Referer': 'https://www.amap.com/'
-                },
-                proxies={'http': None, 'https': None}
-            )
-
-            if resp.status_code != 200:
-                return HttpResponse(
-                    f'上游瓦片服务异常: {resp.status_code}',
-                    status=502,
-                    content_type='text/plain; charset=utf-8'
-                )
-
-            content_type = resp.headers.get('Content-Type', 'image/png')
-            response = HttpResponse(resp.content, content_type=content_type)
-            response['Cache-Control'] = 'public, max-age=3600'
+        key = self._cache_key(x, y, z, style, lang)
+        cached = self._get_from_cache(key)
+        if cached:
+            response = HttpResponse(cached['content'], content_type=cached['content_type'])
+            response['Cache-Control'] = 'public, max-age=300'
+            response['X-Map-Cache'] = 'hit'
             return response
-        except Exception as e:
-            logger.exception('地图瓦片代理异常: %s', e)
-            return HttpResponse('地图瓦片代理失败', status=502, content_type='text/plain; charset=utf-8')
+
+        hosts = [
+            'https://webst01.is.autonavi.com',
+            'https://webst02.is.autonavi.com',
+            'https://webst03.is.autonavi.com',
+            'https://webst04.is.autonavi.com'
+        ]
+        random.shuffle(hosts)
+
+        last_error = None
+        for host in hosts:
+            if style == '8':
+                target_url = f'{host}/appmaptile?x={x}&y={y}&z={z}&lang={lang}&style=8'
+            else:
+                target_url = f'{host}/appmaptile?x={x}&y={y}&z={z}&style={style}'
+
+            try:
+                resp = self._fetch(request, target_url)
+                if resp.status_code == 200 and resp.content:
+                    content_type = resp.headers.get('Content-Type', 'image/png')
+                    self._set_cache(key, resp.content, content_type)
+                    response = HttpResponse(resp.content, content_type=content_type)
+                    response['Cache-Control'] = 'public, max-age=1800'
+                    response['X-Map-Upstream'] = host
+                    return response
+                last_error = f'status={resp.status_code}'
+            except Exception as e:
+                last_error = str(e)
+
+        logger.warning('地图瓦片代理失败 x=%s y=%s z=%s style=%s err=%s', x, y, z, style, last_error)
+        return HttpResponse('地图瓦片代理失败', status=502, content_type='text/plain; charset=utf-8')
