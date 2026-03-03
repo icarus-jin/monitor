@@ -5,7 +5,9 @@
 - 设备/业务数据：jdhydevicedb 原始库
 """
 from datetime import datetime
+import os
 import time
+from pathlib import Path
 from threading import Lock
 
 from django.db import connections
@@ -799,12 +801,19 @@ class DeviceOverviewView(View):
 @method_decorator(csrf_exempt, name='dispatch')
 class MapTileProxyView(View):
     _CACHE_TTL_SECONDS = 1800
+    _DISK_CACHE_TTL_SECONDS = 7 * 24 * 3600
     _cache = {}
     _cache_lock = Lock()
+    _disk_cache_root = Path(__file__).resolve().parents[2] / 'cache' / 'map_tiles'
 
     @classmethod
     def _cache_key(cls, x, y, z, style, lang):
         return f'{style}:{lang}:{z}:{x}:{y}'
+
+    @classmethod
+    def _disk_tile_path(cls, x, y, z, style, lang):
+        tile_dir = cls._disk_cache_root / str(style) / str(lang) / str(z) / str(x)
+        return tile_dir / f'{y}.tile'
 
     @classmethod
     def _get_from_cache(cls, key):
@@ -827,12 +836,48 @@ class MapTileProxyView(View):
                 'content_type': content_type
             }
 
+    @classmethod
+    def _get_from_disk_cache(cls, x, y, z, style, lang, allow_stale=False):
+        tile_path = cls._disk_tile_path(x, y, z, style, lang)
+        if not tile_path.exists():
+            return None
+
+        try:
+            mtime = tile_path.stat().st_mtime
+            expired = (time.time() - mtime) > cls._DISK_CACHE_TTL_SECONDS
+            if expired and not allow_stale:
+                return None
+
+            content = tile_path.read_bytes()
+            if not content:
+                return None
+
+            return {
+                'content': content,
+                'content_type': 'image/png',
+                'stale': expired
+            }
+        except Exception as e:
+            logger.warning('读取瓦片磁盘缓存失败 %s: %s', tile_path, e)
+            return None
+
+    @classmethod
+    def _set_disk_cache(cls, x, y, z, style, lang, content):
+        tile_path = cls._disk_tile_path(x, y, z, style, lang)
+        try:
+            tile_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = tile_path.with_suffix('.tmp')
+            tmp_path.write_bytes(content)
+            tmp_path.replace(tile_path)
+        except Exception as e:
+            logger.warning('写入瓦片磁盘缓存失败 %s: %s', tile_path, e)
+
     def _fetch(self, request, target_url):
         session = requests.Session()
         session.trust_env = False
         return session.get(
             target_url,
-            timeout=(3, 8),
+            timeout=(3, 10),
             headers={
                 'User-Agent': request.META.get('HTTP_USER_AGENT', 'Mozilla/5.0'),
                 'Referer': 'https://www.amap.com/'
@@ -851,11 +896,20 @@ class MapTileProxyView(View):
             return error('x,y,z不能为空', code=400)
 
         key = self._cache_key(x, y, z, style, lang)
+
         cached = self._get_from_cache(key)
         if cached:
             response = HttpResponse(cached['content'], content_type=cached['content_type'])
             response['Cache-Control'] = 'public, max-age=300'
-            response['X-Map-Cache'] = 'hit'
+            response['X-Map-Cache'] = 'memory-hit'
+            return response
+
+        disk_cached = self._get_from_disk_cache(x, y, z, style, lang, allow_stale=False)
+        if disk_cached:
+            self._set_cache(key, disk_cached['content'], disk_cached['content_type'])
+            response = HttpResponse(disk_cached['content'], content_type=disk_cached['content_type'])
+            response['Cache-Control'] = 'public, max-age=300'
+            response['X-Map-Cache'] = 'disk-hit'
             return response
 
         hosts = [
@@ -878,13 +932,23 @@ class MapTileProxyView(View):
                 if resp.status_code == 200 and resp.content:
                     content_type = resp.headers.get('Content-Type', 'image/png')
                     self._set_cache(key, resp.content, content_type)
+                    self._set_disk_cache(x, y, z, style, lang, resp.content)
                     response = HttpResponse(resp.content, content_type=content_type)
                     response['Cache-Control'] = 'public, max-age=1800'
                     response['X-Map-Upstream'] = host
+                    response['X-Map-Cache'] = 'miss'
                     return response
                 last_error = f'status={resp.status_code}'
             except Exception as e:
                 last_error = str(e)
+
+        stale_cached = self._get_from_disk_cache(x, y, z, style, lang, allow_stale=True)
+        if stale_cached:
+            self._set_cache(key, stale_cached['content'], stale_cached['content_type'])
+            response = HttpResponse(stale_cached['content'], content_type=stale_cached['content_type'])
+            response['Cache-Control'] = 'public, max-age=60'
+            response['X-Map-Cache'] = 'disk-stale'
+            return response
 
         logger.warning('地图瓦片代理失败 x=%s y=%s z=%s style=%s err=%s', x, y, z, style, last_error)
         return HttpResponse('地图瓦片代理失败', status=502, content_type='text/plain; charset=utf-8')
