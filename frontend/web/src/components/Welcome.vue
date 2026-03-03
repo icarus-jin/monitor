@@ -18,7 +18,7 @@
       </div>
 
       <div class="scene-tools">
-        <span class="scene-tools-label">场景</span>
+        <span class="scene-tools-label"></span>
         <button class="scene-btn" :class="{ active: currentSceneMode === '3D' }" :disabled="isSwitchingScene" @click="switchSceneMode('3D')">3D</button>
         <button class="scene-btn" :class="{ active: currentSceneMode === '2D' }" :disabled="isSwitchingScene" @click="switchSceneMode('2D')">2D</button>
       </div>
@@ -55,7 +55,7 @@ export default {
       isSwitchingScene: false,
       pendingRenderTimer: null,
       scaleTuneTimer: null,
-      loadingText: 'loading...'
+      loadingText: '地图加载中...'
     }
   },
   mounted () {
@@ -82,7 +82,7 @@ export default {
     initMap3D () {
       try {
         this.map3dLoading = true
-        this.loadingText = '地图加载中...'
+        this.loadingText = 'loading...'
         mars3d.Log.hasInfo(false)
 
         const mapOptions = {
@@ -113,11 +113,8 @@ export default {
             {
               id: 2022,
               name: '高德矢量(经后端代理)',
-              type: 'group',
-              layers: [
-                { name: '底图', type: 'xyz', url: '/api/device/map/tile/?style=7&x={x}&y={y}&z={z}' },
-                { name: '注记', type: 'xyz', url: '/api/device/map/tile/?style=8&lang=zh_cn&x={x}&y={y}&z={z}' }
-              ],
+              type: 'xyz',
+              url: '/api/device/map/tile/?style=7&x={x}&y={y}&z={z}',
               show: false
             }
           ],
@@ -130,7 +127,7 @@ export default {
             geocoder: false,
             homeButton: true,
             infoBox: false,
-            sceneModePicker: true,
+            sceneModePicker: false,
             navigationHelpButton: true,
             compass: true,
             zoom: true,
@@ -151,7 +148,10 @@ export default {
           this.currentSceneMode = this.map.viewer.scene.mode === mars3d.Cesium.SceneMode.SCENE2D ? '2D' : '3D'
           this.applySceneModeVisuals(this.currentSceneMode)
           await this.loadAndRenderDevices()
-          this.map3dLoading = false
+          // 首次进入首页默认将比例尺校准到1000公里
+          this.tuneScaleAfterSwitch(this.currentSceneMode, () => {
+            this.map3dLoading = false
+          }, 1000000)
         }).catch((err) => {
           console.error('[mars3d] 地图加载失败', err)
           this.map3dLoading = false
@@ -240,7 +240,7 @@ export default {
       }, 1800)
     },
 
-    tuneScaleAfterSwitch (mode, done) {
+    tuneScaleAfterSwitch (mode, done, forcedTargetMeters = null) {
       if (!this.map || !this.map.viewer) {
         if (done) done()
         return
@@ -252,7 +252,7 @@ export default {
       }
 
       const viewer = this.map.viewer
-      const targetMeters = mode === '2D' ? 100000 : 500000 // 2D=100公里, 3D=500公里
+      const targetMeters = forcedTargetMeters || (mode === '2D' ? 500000 : 500000) // 2D=500公里, 3D=500公里
       let attempts = 0
 
       const parseScaleToMeters = (text) => {
@@ -307,7 +307,8 @@ export default {
       const is2D = mode === '2D'
 
       viewer.shadows = false
-      viewer.scene.globe.enableLighting = false
+      // 3D开启日照，2D关闭
+      viewer.scene.globe.enableLighting = !is2D
       viewer.scene.fog.enabled = false
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = !is2D
       viewer.scene.backgroundColor = mars3d.Cesium.Color.fromCssColorString('#dbeafe')
@@ -479,36 +480,36 @@ export default {
 
 .map-legend {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 16px;
+  left: 16px;
   min-width: 220px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: rgba(9, 12, 21, 0.75);
-  border: 1px solid rgba(248, 113, 113, 0.55);
+  padding: 0;
   color: #f8fafc;
-  backdrop-filter: blur(4px);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .legend-total {
-  margin-top: 4px;
-  margin-bottom: 8px;
+  margin: 0 0 10px 0;
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
 }
 
 .legend-total-label {
-  font-size: 12px;
-  color: #fecaca;
+  font-size: 13px;
+  color: #fde68a;
 }
 
 .legend-total-value {
-  font-size: 20px;
+  font-size: 24px;
   line-height: 1;
-  font-weight: 700;
-  color: #fee2e2;
+  font-weight: 800;
+  color: #ffffff;
 }
 
 .legend-status-row {
@@ -517,7 +518,8 @@ export default {
   gap: 8px;
   margin-top: 6px;
   font-size: 12px;
-  color: #fecaca;
+  color: #e5e7eb;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 
 .status-dot {
