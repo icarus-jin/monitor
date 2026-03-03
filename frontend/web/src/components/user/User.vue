@@ -172,12 +172,12 @@
     >
       <el-form
         ref="resetPwdForm"
-        :model="resetPwdform"
+        :model="resetPwdForm"
         :rules="resetPwdRules"
         label-width="90px"
       >
         <el-form-item label="新密码" prop="new_pwd">
-          <el-input v-model="resetPwdform.new_pwd" type="password" placeholder="不少于6位" show-password />
+          <el-input v-model="resetPwdForm.new_pwd" type="password" placeholder="不少于6位" show-password />
         </el-form-item>
       </el-form>
 
@@ -207,7 +207,7 @@ export default {
       deviceSelectVisible: false,
       isEdit: false,
       form: {},
-      resetPwdform: {},
+      resetPwdForm: {},
       allDeviceList: [],
       filteredDeviceList: [],
       deviceSearchKeyword: '',
@@ -435,20 +435,20 @@ export default {
     },
 
     openResetPwd (row) {
-      this.resetPwdform = { id: row.id, new_pwd: '' }
+      this.resetPwdForm = { id: row.id, new_pwd: '' }
       this.resetPwdDialogVisible = true
     },
 
     resetResetPwdForm () {
       this.$refs.resetPwdForm && this.$refs.resetPwdForm.resetFields()
-      this.resetPwdform = {}
+      this.resetPwdForm = {}
       this.resetPwdDialogVisible = false
     },
 
     submitResetPwd () {
       this.$refs.resetPwdForm.validate(async valid => {
         if (!valid) return
-        const { data: res } = await this.$axios.put('/user/reset_password/', this.$qs.stringify(this.resetPwdform), {
+        const { data: res } = await this.$axios.put('/user/reset_password/', this.$qs.stringify(this.resetPwdForm), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         })
 

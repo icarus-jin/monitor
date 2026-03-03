@@ -18,7 +18,7 @@
           <el-form-item>
             <el-row :gutter="10">
               <el-col :span="12">
-                <el-button @click="restForm" style="width:100%">重置</el-button>
+                <el-button @click="resetForm" style="width:100%">重置</el-button>
               </el-col>
               <el-col :span="12">
                 <el-button @click="login" type="primary" style="width:100%">登录</el-button>
@@ -52,7 +52,7 @@ export default {
     }
   },
   methods: {
-    restForm () {
+    resetForm () {
       this.$refs.userRef.resetFields()
     },
     login () {

@@ -41,12 +41,15 @@ const router = new VueRouter({
   routes
 })
 
-export default router
+const LOGIN_PATH = '/login'
+const TOKEN_KEY = 'token'
 
 // 前端控制必须登录才能访问
 router.beforeEach((to, from, next) => {
-  if (to.path === '/login') return next()
-  const token = window.sessionStorage.getItem('token')
-  if (!token) return next('/login')
+  if (to.path === LOGIN_PATH) return next()
+  const token = window.sessionStorage.getItem(TOKEN_KEY)
+  if (!token) return next(LOGIN_PATH)
   next()
 })
+
+export default router

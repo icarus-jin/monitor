@@ -16,6 +16,15 @@ from .models import User
 from utils import token_store, success, error, parse_body, get_param, logger
 
 
+def _normalize_str_list(value):
+    """将字符串/列表统一转换为去空格后的字符串列表。"""
+    if isinstance(value, str):
+        return [x.strip() for x in value.split(',') if x.strip()]
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    return []
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class LoginView(View):
     """登录"""
@@ -90,13 +99,7 @@ class UserDetailView(View):
             name = (get_param(body, 'name') or '').strip()
             password = get_param(body, 'password') or get_param(body, 'pwd')
             user_type = int(get_param(body, 'type') or 2)
-            device_list = body.get('device_list')
-            if isinstance(device_list, str):
-                device_list = [x.strip() for x in device_list.split(',') if x.strip()]
-            elif isinstance(device_list, list):
-                device_list = [str(x).strip() for x in device_list if str(x).strip()]
-            else:
-                device_list = []
+            device_list = _normalize_str_list(body.get('device_list'))
             if not name:
                 return error('用户名不能为空', code=400)
             if not password or len(password) < 6:
@@ -130,10 +133,7 @@ class UserDetailView(View):
                 user.type = int(user_type)
             device_list = body.get('device_list')
             if device_list is not None:
-                if isinstance(device_list, str):
-                    user.device_list = [x.strip() for x in device_list.split(',') if x.strip()]
-                elif isinstance(device_list, list):
-                    user.device_list = [str(x).strip() for x in device_list if str(x).strip()]
+                user.device_list = _normalize_str_list(device_list)
             user.save()
             logger.info('编辑用户: %s (id=%s)', user.name, user.id)
             return success(msg='编辑成功')
@@ -165,9 +165,7 @@ class UserBatchDeleteView(View):
     def post(self, request):
         try:
             body = parse_body(request)
-            ids = body.get('ids') or body.get('id_list') or []
-            if isinstance(ids, str):
-                ids = [x.strip() for x in ids.split(',') if x.strip()]
+            ids = _normalize_str_list(body.get('ids') or body.get('id_list') or [])
             if not ids:
                 return error('请选择要删除的用户', code=400)
             User.objects.filter(id__in=ids, is_delete=0).update(is_delete=1)

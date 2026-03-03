@@ -27,6 +27,10 @@ RAW_SCHEMA = 'jdhydevicedb'
 TABLE_03001 = '03001idb_icedriftbuoy'
 TABLE_03004 = '03004imb_icemassbalancebuoy'
 
+MAP_POINTS_CACHE_TTL_SECONDS = 20
+_map_points_cache = {}
+_map_points_cache_lock = Lock()
+
 
 def _get_current_user(request):
     user_id = request.session.get('user_id')
@@ -135,6 +139,57 @@ def _get_latest_time_map(device_ids):
     return {r[0]: r[1] for r in rows}
 
 
+def _get_latest_position_map(device_ids):
+    """按设备返回最新有效经纬度（跨两张原始表，性能优化版）。"""
+    if not device_ids:
+        return {}
+    placeholders = ','.join(['%s'] * len(device_ids))
+
+    sql_03001 = f"""
+    SELECT t.devid, t.`time` AS packet_time, t.latflag, t.lat, t.lonflag, t.lon
+    FROM `{TABLE_03001}` t
+    INNER JOIN (
+      SELECT devid, MAX(`time`) AS latest_time
+      FROM `{TABLE_03001}`
+      WHERE devid IN ({placeholders}) AND `time` IS NOT NULL
+      GROUP BY devid
+    ) m ON t.devid = m.devid AND t.`time` = m.latest_time
+    """
+
+    sql_03004 = f"""
+    SELECT t.devid, t.`time` AS packet_time, t.latflag, t.lat, t.lonflag, t.lon
+    FROM `{TABLE_03004}` t
+    INNER JOIN (
+      SELECT devid, MAX(`time`) AS latest_time
+      FROM `{TABLE_03004}`
+      WHERE devid IN ({placeholders}) AND `time` IS NOT NULL
+      GROUP BY devid
+    ) m ON t.devid = m.devid AND t.`time` = m.latest_time
+    """
+
+    rows = []
+    with connections[RAW_DB].cursor() as cursor:
+        cursor.execute(sql_03001, device_ids)
+        rows.extend(cursor.fetchall())
+        cursor.execute(sql_03004, device_ids)
+        rows.extend(cursor.fetchall())
+
+    latest_pos = {}
+    for devid, packet_time, latflag, lat, lonflag, lon in rows:
+        nlat, nlon = _normalize_lat_lon(lat, lon, latflag, lonflag)
+        if nlat is None or nlon is None:
+            continue
+
+        exists = latest_pos.get(devid)
+        if not exists or (_to_naive(packet_time) and _to_naive(packet_time) >= _to_naive(exists['packet_time'])):
+            latest_pos[devid] = {
+                'latitude': nlat,
+                'longitude': nlon,
+                'packet_time': packet_time
+            }
+    return latest_pos
+
+
 def _get_latest_row_by_device(table_name, device_id):
     with connections[RAW_DB].cursor() as cursor:
         cursor.execute(
@@ -142,6 +197,7 @@ def _get_latest_row_by_device(table_name, device_id):
             [device_id]
         )
         return _dict_fetch_one(cursor)
+
 
 
 def _default_year_range():
@@ -164,6 +220,33 @@ def _parse_date_range(start_date, end_date):
         return _default_year_range()
 
 
+def _map_points_cache_key(user):
+    if user.type == 1:
+        return 'admin:all'
+    device_ids = sorted([str(x) for x in (user.device_list or [])])
+    return f"user:{user.id}:" + ','.join(device_ids)
+
+
+def _map_points_cache_get(cache_key):
+    now = time.time()
+    with _map_points_cache_lock:
+        item = _map_points_cache.get(cache_key)
+        if not item:
+            return None
+        if now - item['ts'] > MAP_POINTS_CACHE_TTL_SECONDS:
+            _map_points_cache.pop(cache_key, None)
+            return None
+        return item['data']
+
+
+def _map_points_cache_set(cache_key, data):
+    with _map_points_cache_lock:
+        _map_points_cache[cache_key] = {
+            'ts': time.time(),
+            'data': data
+        }
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class DeviceListView(View):
     def get(self, request):
@@ -177,6 +260,7 @@ class DeviceListView(View):
             keyword = (request.GET.get('keyword') or '').strip()
             ownership = (request.GET.get('ownership') or '').strip()
             status_filter = request.GET.get('status')
+            use_latest_position = request.GET.get('use_latest_position') in ['1', 'true', 'True']
 
             sql = """
             SELECT id, devid, name, iridiumid, sensorflag, latflag, lat, lonflag, lon, workstate, display, ownership
@@ -224,12 +308,20 @@ class DeviceListView(View):
             if ownership:
                 raw_list = [x for x in raw_list if ownership in x['ownership']]
 
-            latest_map = _get_latest_time_map([x['device_id'] for x in raw_list])
+            device_ids = [x['device_id'] for x in raw_list]
+            latest_map = _get_latest_time_map(device_ids)
+            latest_pos_map = _get_latest_position_map(device_ids) if use_latest_position else {}
             for x in raw_list:
                 t = latest_map.get(x['device_id'])
                 x['status'] = 1 if _is_online_time(t) else 0
                 x['status_name'] = '在线' if x['status'] == 1 else '离线'
                 x['last_report_time'] = _fmt_dt(t)
+                if use_latest_position:
+                    pos = latest_pos_map.get(x['device_id'])
+                    if pos:
+                        x['latitude'] = pos.get('latitude')
+                        x['longitude'] = pos.get('longitude')
+                        x['latest_packet_time'] = _fmt_dt(pos.get('packet_time'))
 
             if status_filter in ['0', '1']:
                 raw_list = [x for x in raw_list if x['status'] == int(status_filter)]
@@ -282,6 +374,82 @@ class DeviceSimpleListView(View):
             return success(data={'device_list': device_list})
         except Exception as e:
             logger.exception('设备简要列表异常: %s', e)
+            return error(str(e), code=500)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DeviceMapPointsView(View):
+    """首页地图设备点位（一次返回，使用最新有效经纬度）。"""
+    def get(self, request):
+        try:
+            user = _get_current_user(request)
+            if not user:
+                return error('登录状态已失效，请重新登录', code=10016)
+
+            cache_key = _map_points_cache_key(user)
+            cached = _map_points_cache_get(cache_key)
+            if cached is not None:
+                return success(data=cached)
+
+            sql = "SELECT id, devid, name, sensorflag, ownership FROM `device_list` WHERE 1=1"
+            params = []
+            if user.type != 1:
+                device_ids = user.device_list or []
+                if not device_ids:
+                    payload = {'device_list': [], 'total': 0}
+                    _map_points_cache_set(cache_key, payload)
+                    return success(data=payload)
+                placeholders = ','.join(['%s'] * len(device_ids))
+                sql += f" AND devid IN ({placeholders})"
+                params.extend(device_ids)
+            sql += " ORDER BY devid ASC"
+
+            with connections[RAW_DB].cursor() as cursor:
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+
+            # device_list 可能存在重复 devid，按 device_id 去重（保留最新一条）
+            base_device_map = {}
+            for row in rows:
+                raw_id, devid, name, sensorflag, own = row
+                if not devid:
+                    continue
+                base_device_map[devid] = {
+                    'id': int(raw_id) if raw_id is not None else 0,
+                    'device_id': devid,
+                    'device_name': name or devid,
+                    'sensorflag': sensorflag or '',
+                    'ownership': own or '',
+                    'device_type': _device_type_from_sensorflag(sensorflag)
+                }
+            base_devices = list(base_device_map.values())
+
+            device_ids = [x['device_id'] for x in base_devices]
+            latest_map = _get_latest_time_map(device_ids)
+            latest_pos_map = _get_latest_position_map(device_ids)
+
+            point_list = []
+            for item in base_devices:
+                pos = latest_pos_map.get(item['device_id'])
+                if not pos:
+                    continue
+                t = latest_map.get(item['device_id'])
+                is_online = _is_online_time(t)
+                point_list.append({
+                    **item,
+                    'latitude': pos.get('latitude'),
+                    'longitude': pos.get('longitude'),
+                    'latest_packet_time': _fmt_dt(pos.get('packet_time')),
+                    'status': 1 if is_online else 0,
+                    'status_name': '在线' if is_online else '离线',
+                    'last_report_time': _fmt_dt(t)
+                })
+
+            payload = {'device_list': point_list, 'total': len(point_list)}
+            _map_points_cache_set(cache_key, payload)
+            return success(data=payload)
+        except Exception as e:
+            logger.exception('首页地图点位异常: %s', e)
             return error(str(e), code=500)
 
 
@@ -393,8 +561,6 @@ class DeviceTrendView(View):
             range_type = (request.GET.get('range_type') or 'year').strip()
             start_date = (request.GET.get('start_date') or '').strip()
             end_date = (request.GET.get('end_date') or '').strip()
-            page = int(request.GET.get('page', 1))
-            page_size = int(request.GET.get('page_size', 100))
             page = int(request.GET.get('page', 1))
             page_size = int(request.GET.get('page_size', 100))
 

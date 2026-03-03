@@ -238,15 +238,15 @@ export default {
       if (value !== 'custom') {
         this.updateTrendDateRange()
         this.loadTrendData()
-      } else {
-        const now = new Date()
-        const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-        const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000)
-        this.trendDateRange = [
-          this.formatDate(startDate),
-          this.formatDate(endDate)
-        ]
+        return
       }
+      const now = new Date()
+      const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+      const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000)
+      this.trendDateRange = [
+        this.formatDate(startDate),
+        this.formatDate(endDate)
+      ]
     },
     handleCustomDateChange (value) {
       if (value && value.length === 2) {
@@ -311,24 +311,46 @@ export default {
       this.page = page
       this.getTableData()
     },
+    resetDetailState (row) {
+      this.currentDevice = row
+      this.latestFieldList = []
+      this.keyFieldList = []
+      this.otherFieldList = []
+      this.trendColumns = []
+      this.trendPoints = []
+      this.trendPage = 1
+      this.trendPageSize = 100
+      this.trendTotal = 0
+      this.trendRangeType = '1y'
+      this.dataVisible = true
+      this.updateTrendDateRange()
+    },
+    getTrendDateParams () {
+      if (this.trendRangeType !== 'custom') {
+        this.updateTrendDateRange()
+      }
+      return {
+        startDate: (this.trendDateRange && this.trendDateRange[0]) || '',
+        endDate: (this.trendDateRange && this.trendDateRange[1]) || ''
+      }
+    },
+    applyTrendData (res) {
+      if (res.code === 200) {
+        const d = res.data || {}
+        this.trendColumns = d.columns || []
+        this.trendPoints = d.points || []
+        this.trendTotal = d.total || 0
+        return
+      }
+      this.trendColumns = []
+      this.trendPoints = []
+      this.trendTotal = 0
+    },
     async showData (row) {
       try {
-        this.currentDevice = row
-        this.latestFieldList = []
-        this.keyFieldList = []
-        this.otherFieldList = []
-        this.trendColumns = []
-        this.trendPoints = []
-        this.trendPage = 1
-        this.trendPageSize = 100
-        this.trendTotal = 0
-        this.trendRangeType = '1y'
-
-        this.dataVisible = true
-        this.updateTrendDateRange()
+        this.resetDetailState(row)
 
         const latestRes = await this.$axios.get('/device/data/latest/', { params: { device_id: row.device_id } })
-
         if (latestRes.data.code === 200) {
           const d = latestRes.data.data || {}
           this.latestFieldList = d.field_list || []
@@ -343,16 +365,7 @@ export default {
     },
     async loadTrendData () {
       if (!this.currentDevice.device_id) return
-      let startDate = ''
-      let endDate = ''
-      if (this.trendRangeType === 'custom') {
-        startDate = this.trendDateRange && this.trendDateRange[0] ? this.trendDateRange[0] : ''
-        endDate = this.trendDateRange && this.trendDateRange[1] ? this.trendDateRange[1] : ''
-      } else {
-        this.updateTrendDateRange()
-        startDate = this.trendDateRange && this.trendDateRange[0] ? this.trendDateRange[0] : ''
-        endDate = this.trendDateRange && this.trendDateRange[1] ? this.trendDateRange[1] : ''
-      }
+      const { startDate, endDate } = this.getTrendDateParams()
       const { data: res } = await this.$axios.get('/device/data/trend/', {
         params: {
           device_id: this.currentDevice.device_id,
@@ -363,16 +376,7 @@ export default {
           page_size: this.trendPageSize
         }
       })
-      if (res.code === 200) {
-        const d = res.data || {}
-        this.trendColumns = d.columns || []
-        this.trendPoints = d.points || []
-        this.trendTotal = d.total || 0
-      } else {
-        this.trendColumns = []
-        this.trendPoints = []
-        this.trendTotal = 0
-      }
+      this.applyTrendData(res)
     },
     handleTrendSizeChange (size) {
       this.trendPageSize = size
