@@ -5,7 +5,6 @@
 - 设备/业务数据：jdhydevicedb 原始库
 """
 from datetime import datetime
-import os
 import time
 from pathlib import Path
 from threading import Lock
@@ -802,9 +801,11 @@ class DeviceOverviewView(View):
 class MapTileProxyView(View):
     _CACHE_TTL_SECONDS = 1800
     _DISK_CACHE_TTL_SECONDS = 7 * 24 * 3600
+    _CLEANUP_INTERVAL_SECONDS = 3600
     _cache = {}
     _cache_lock = Lock()
     _disk_cache_root = Path(__file__).resolve().parents[2] / 'cache' / 'map_tiles'
+    _last_cleanup_ts = 0
 
     @classmethod
     def _cache_key(cls, x, y, z, style, lang):
@@ -814,6 +815,38 @@ class MapTileProxyView(View):
     def _disk_tile_path(cls, x, y, z, style, lang):
         tile_dir = cls._disk_cache_root / str(style) / str(lang) / str(z) / str(x)
         return tile_dir / f'{y}.tile'
+
+    @classmethod
+    def _disk_meta_path(cls, x, y, z, style, lang):
+        tile_dir = cls._disk_cache_root / str(style) / str(lang) / str(z) / str(x)
+        return tile_dir / f'{y}.meta'
+
+    @classmethod
+    def _maybe_cleanup_disk_cache(cls):
+        now = time.time()
+        with cls._cache_lock:
+            if now - cls._last_cleanup_ts < cls._CLEANUP_INTERVAL_SECONDS:
+                return
+            cls._last_cleanup_ts = now
+
+        root = cls._disk_cache_root
+        if not root.exists():
+            return
+
+        expire_before = now - cls._DISK_CACHE_TTL_SECONDS
+        try:
+            for path in root.rglob('*'):
+                if not path.is_file():
+                    continue
+                if path.suffix not in ('.tile', '.meta'):
+                    continue
+                try:
+                    if path.stat().st_mtime < expire_before:
+                        path.unlink(missing_ok=True)
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning('清理瓦片磁盘缓存失败: %s', e)
 
     @classmethod
     def _get_from_cache(cls, key):
@@ -839,6 +872,7 @@ class MapTileProxyView(View):
     @classmethod
     def _get_from_disk_cache(cls, x, y, z, style, lang, allow_stale=False):
         tile_path = cls._disk_tile_path(x, y, z, style, lang)
+        meta_path = cls._disk_meta_path(x, y, z, style, lang)
         if not tile_path.exists():
             return None
 
@@ -852,9 +886,18 @@ class MapTileProxyView(View):
             if not content:
                 return None
 
+            content_type = 'image/png'
+            if meta_path.exists():
+                try:
+                    meta_content = meta_path.read_text(encoding='utf-8').strip()
+                    if meta_content:
+                        content_type = meta_content
+                except Exception:
+                    pass
+
             return {
                 'content': content,
-                'content_type': 'image/png',
+                'content_type': content_type,
                 'stale': expired
             }
         except Exception as e:
@@ -862,13 +905,15 @@ class MapTileProxyView(View):
             return None
 
     @classmethod
-    def _set_disk_cache(cls, x, y, z, style, lang, content):
+    def _set_disk_cache(cls, x, y, z, style, lang, content, content_type):
         tile_path = cls._disk_tile_path(x, y, z, style, lang)
+        meta_path = cls._disk_meta_path(x, y, z, style, lang)
         try:
             tile_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = tile_path.with_suffix('.tmp')
             tmp_path.write_bytes(content)
             tmp_path.replace(tile_path)
+            meta_path.write_text(content_type or 'image/png', encoding='utf-8')
         except Exception as e:
             logger.warning('写入瓦片磁盘缓存失败 %s: %s', tile_path, e)
 
@@ -896,6 +941,7 @@ class MapTileProxyView(View):
             return error('x,y,z不能为空', code=400)
 
         key = self._cache_key(x, y, z, style, lang)
+        self._maybe_cleanup_disk_cache()
 
         cached = self._get_from_cache(key)
         if cached:
@@ -932,7 +978,7 @@ class MapTileProxyView(View):
                 if resp.status_code == 200 and resp.content:
                     content_type = resp.headers.get('Content-Type', 'image/png')
                     self._set_cache(key, resp.content, content_type)
-                    self._set_disk_cache(x, y, z, style, lang, resp.content)
+                    self._set_disk_cache(x, y, z, style, lang, resp.content, content_type)
                     response = HttpResponse(resp.content, content_type=content_type)
                     response['Cache-Control'] = 'public, max-age=1800'
                     response['X-Map-Upstream'] = host

@@ -206,7 +206,6 @@ export default {
               ? { heading: 0, pitch: -Cesium.Math.PI_OVER_TWO, roll: 0 }
               : undefined
           })
-          console.log('[scene] morph complete setView', { mode, targetHeight })
         } catch (e) {
           console.warn('[scene] setView after morph failed', e)
         }
@@ -230,10 +229,6 @@ export default {
       } else {
         scene.morphTo3D(0.35)
       }
-      console.log('[scene] switch requested', {
-        mode,
-        currentScaleLabel: document.querySelector('.mars3d-distance-legend .legend-label')?.innerText
-      })
 
       setTimeout(() => {
         scene.morphComplete.removeEventListener(onMorphComplete)
@@ -252,8 +247,10 @@ export default {
       }
 
       const viewer = this.map.viewer
-      const targetMeters = forcedTargetMeters || (mode === '2D' ? 500000 : 500000) // 2D=500公里, 3D=500公里
+      const targetMeters = forcedTargetMeters || (mode === '2D' ? 300000 : 500000) // 2D=300公里, 3D=500公里
       let attempts = 0
+      let stableLabelCount = 0
+      let lastLabel = ''
 
       const parseScaleToMeters = (text) => {
         if (!text) return null
@@ -264,40 +261,38 @@ export default {
         return null
       }
 
+      const finish = () => {
+        clearInterval(this.scaleTuneTimer)
+        this.scaleTuneTimer = null
+        if (done) done()
+      }
+
       const step = () => {
         attempts += 1
         const label = document.querySelector('.mars3d-distance-legend .legend-label')?.innerText || ''
         const currentMeters = parseScaleToMeters(label)
 
+        if (label === lastLabel) stableLabelCount += 1
+        else stableLabelCount = 0
+        lastLabel = label
+
         if (!currentMeters) {
-          if (attempts >= 20) {
-            clearInterval(this.scaleTuneTimer)
-            this.scaleTuneTimer = null
-            if (done) done()
-          }
+          if (attempts >= 18) finish()
           return
         }
 
         const diff = currentMeters - targetMeters
-        if (Math.abs(diff) <= targetMeters * 0.18 || attempts >= 20) {
-          console.log('[scene] scale tuned', { mode, label, currentMeters, targetMeters, attempts })
-          clearInterval(this.scaleTuneTimer)
-          this.scaleTuneTimer = null
-          if (done) done()
+        if (Math.abs(diff) <= targetMeters * 0.18 || attempts >= 18 || stableLabelCount >= 3) {
+          finish()
           return
         }
 
-        const delta = Math.max(viewer.camera.positionCartographic.height * 0.22, 150000)
-        if (diff > 0) {
-          // 比例尺偏大（如1000公里），需要拉近
-          viewer.camera.zoomIn(delta)
-        } else {
-          // 比例尺偏小（如20公里），需要拉远
-          viewer.camera.zoomOut(delta)
-        }
+        const delta = Math.max(viewer.camera.positionCartographic.height * 0.2, 120000)
+        if (diff > 0) viewer.camera.zoomIn(delta)
+        else viewer.camera.zoomOut(delta)
       }
 
-      this.scaleTuneTimer = setInterval(step, 120)
+      this.scaleTuneTimer = setInterval(step, 180)
       step()
     },
 
