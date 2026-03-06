@@ -52,8 +52,8 @@ class Command(BaseCommand):
 
         created_count = 0
         for ud in users_data:
-            if not User.objects.filter(name=ud['name'], is_delete=0).exists():
-                User.objects.create(
+            if not User.objects.using('default').filter(name=ud['name'], is_delete=0).exists():
+                User.objects.using('default').create(
                     name=ud['name'],
                     password=make_password(ud['password']),
                     type=ud['type'],

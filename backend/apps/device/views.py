@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 设备视图（只读展示模式）
-- 用户权限：test.t_user
+- 用户权限：jdhydevicedb.t_user
 - 设备/业务数据：jdhydevicedb 原始库
 """
 from datetime import datetime
@@ -23,10 +23,29 @@ import requests
 from apps.user.models import User
 from utils import success, error, logger, token_store
 
-RAW_DB = 'raw'
+RAW_DB = 'default'
 RAW_SCHEMA = 'jdhydevicedb'
-TABLE_03001 = '03001idb_icedriftbuoy'
-TABLE_03004 = '03004imb_icemassbalancebuoy'
+
+PREFIX_TABLE_MAP = {
+    '01001': '01001gnssstation',
+    '02001': '02001ugms_unattendedglaciermonitoringsystem',
+    '02002': '02002ms_meteorologicalstation',
+    '02003': '02003spom_spacephysicsobservationmodule',
+    '02004': '02004sib_seaicebuoy',
+    '02005': '02005pmc_penguinmonitoringcamera',
+    '02006': '02006cr_cornerreflector',
+    '02007': '02007stb_southtempchainbuoy',
+    '03001': '03001idb_icedriftbuoy',
+    '03002': '03002tcb_tempchainbuoy',
+    '03003': '03003uis_unmannedicestation',
+    '03004': '03004imb_icemassbalancebuoy',
+    '03005': '03005mp_meltpond',
+    '03006': '03006ib_imagebuoy',
+    '03007': '03007ab_adcpbuoy',
+    '03008': '03008isb_icestressbuoy'
+}
+
+_table_columns_cache = {}
 
 MAP_POINTS_CACHE_TTL_SECONDS = 20
 _map_points_cache = {}
@@ -42,7 +61,7 @@ def _get_current_user(request):
             user_id = info.get('user_id')
     if not user_id:
         return None
-    return User.objects.filter(id=user_id, is_delete=0).first()
+    return User.objects.using(RAW_DB).filter(id=user_id, is_delete=0).first()
 
 
 def _normalize_lat_lon(lat, lon, latflag, lonflag):
@@ -62,9 +81,14 @@ def _normalize_lat_lon(lat, lon, latflag, lonflag):
         return None, None
 
 
-def _device_type_from_sensorflag(sensorflag):
-    flag = (sensorflag or '').lower()
-    return 'station' if ('station' in flag or 'aws' in flag) else 'buoy'
+def _device_type_from_prefix(prefix5):
+    if str(prefix5 or '').startswith('01'):
+        return 'station'
+    return 'buoy'
+
+
+def _device_type_from_device_id(device_id):
+    return _device_type_from_prefix(_prefix_from_devid(device_id))
 
 
 def _to_naive(dt):
@@ -116,78 +140,215 @@ def _get_comment_map(table_name):
     return {r[0]: (r[1] or '').strip() for r in rows}
 
 
+FIELD_LABEL_MAP = {
+    'id': '序号',
+    'name': '设备名称',
+    'devid': '设备序列号',
+    'iridiumid': '铱星号',
+    'sensorflag': '传感器标志位',
+    'latflag': '纬度标志位',
+    'lat': '纬度',
+    'lonflag': '经度标志位',
+    'lon': '经度',
+    'workstate': '工作状态',
+    'display': '同步标志位',
+    'ownership': '归属单位',
+    'sn': '铱星数据编号',
+    'db_time': '入库时间',
+    'uploaded': '同步标志位',
+    'time': '本地时间',
+    'BDid': '北斗号',
+    'Boardtemp': '控制器温度',
+    'Btyvoltage': '电池电压',
+    'Btycurrent': '电池电流',
+    'Loadpower': '负载功率',
+    'Solarvoltage': '光伏板电压',
+    'Solarcurrent': '光伏板电流',
+    'Solarpower': '光伏板功率',
+    'Dayconsump': '日耗电量',
+    'Daygenerat': '日发电量',
+    'Lightness': '光照强度',
+    'VWC_voltage': '土壤体积含水量-电压',
+    'VWC_temp': '土壤体积含水量-温度',
+    'EC_voltage': '土壤电导率-电压',
+    'EC_temp': '土壤电导率-温度',
+    'T_voltage': '土壤温度-电压',
+    'T_temp': '土壤温度-温度',
+    'SoilDATA': '土壤数据',
+    'board_voltage': '控制器电压',
+    'board_temp': '控制器温度',
+    'acpdu_status': '交流PDU状态',
+    'acpdu_voltage': '交流PDU电压',
+    'acpdu_current': '交流PDU电流',
+    'solar_radiation': '光伏板辐照度',
+    'solar_batt_voltage': '光伏系统电池电压',
+    'solar_voltage': '光伏板电压',
+    'solar_charge_current': '光伏板充电电流',
+    'batt_capacity': '电池容量',
+    'solar_generation': '光伏发电量',
+    'ctrl_temp': '光伏系统控制器温度',
+    'voltage': '电压',
+    'current': '电流',
+    'power': '功率',
+    'dcpdu_status': '直流PDU状态',
+    'dcpdu_voltage': '直流PDU电压',
+    'dcpdu_current': '直流PDU电流',
+    'cabin_temp': '能源舱温度',
+    'cabin_humid': '能源舱适度',
+    'wind_batt_voltage': '风机系统电池电压',
+    'wind_charge_current': '风机系统充电电流',
+    'wind_voltage': '风机系统电压',
+    'wind_current': '风机系统电流',
+    'wind_instant_power': '风机系统实时功率',
+    'wind_total_generation': '风机系统总发电量',
+    'wind_rotatespeed': '风机系统风速',
+    'wind_status': '风机系统状态',
+    'atmosphere': '大气压力',
+    'air_temp': '空气温度',
+    'wind_direct': '风向',
+    'wind_speed': '风速',
+    'tempC40': '半导体温度链_40P',
+    'tempC150': '半导体温度链_150P',
+    'tempC200_1': '半导体温度链_200P-01',
+    'tempC200_2': '半导体温度链_200P-02',
+    'tempC_pt': '铂电阻温度链',
+    'tempC_bio': '半导体温度链',
+    'air_humid': '空气湿度',
+    'sonar_on': '超声波雪深声呐',
+    'sonar_under': '冰下仰视声呐',
+    'ST_temp': '皮温传感器',
+    'CTD_c2': 'CTD_电导率',
+    'CTD_t2': 'CTD_温度',
+    'CTD_v2': 'CTD_声速',
+    'CTD_s2': 'CTD_盐度',
+    'CTD_d2': 'CTD_比电导率',
+    'bd_time': '北斗时间',
+    'bd_posflag': '北斗定位标志位',
+    'bd_latflag': '北斗纬度标志位',
+    'bd_lat': '北斗纬度',
+    'bd_lonflag': '北斗经度标志位',
+    'bd_lon': '北斗经度',
+    'ADCP_data': 'ADCP数据',
+    'stressdata': '海冰应力数据'
+}
+
+
 def _field_label(field, comment_map):
-    c = (comment_map.get(field) or '').strip()
-    return c if c else field
+    return FIELD_LABEL_MAP.get(field, field)
+
+
+def _prefix_from_devid(device_id):
+    return (str(device_id or '').strip())[:5]
+
+
+def _table_by_device_id(device_id):
+    return PREFIX_TABLE_MAP.get(_prefix_from_devid(device_id))
+
+
+def _table_columns(table_name):
+    if table_name in _table_columns_cache:
+        return _table_columns_cache[table_name]
+
+    sql = """
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema=%s AND table_name=%s
+    ORDER BY ordinal_position
+    """
+    with connections[RAW_DB].cursor() as cursor:
+        cursor.execute(sql, [RAW_SCHEMA, table_name])
+        rows = cursor.fetchall()
+    cols = [r[0] for r in rows]
+    _table_columns_cache[table_name] = cols
+    return cols
+
+
+def _device_ids_grouped_by_table(device_ids):
+    grouped = {}
+    for did in device_ids:
+        table_name = _table_by_device_id(did)
+        if not table_name:
+            continue
+        grouped.setdefault(table_name, []).append(did)
+    return grouped
 
 
 def _get_latest_time_map(device_ids):
     if not device_ids:
         return {}
-    placeholders = ','.join(['%s'] * len(device_ids))
-    sql = f"""
-    SELECT devid, MAX(packet_time) AS latest_time
-    FROM (
-      SELECT devid, `time` AS packet_time FROM `{TABLE_03001}` WHERE devid IN ({placeholders})
-      UNION ALL
-      SELECT devid, `time` AS packet_time FROM `{TABLE_03004}` WHERE devid IN ({placeholders})
-    ) t
-    GROUP BY devid
-    """
+
+    latest_map = {}
+    grouped = _device_ids_grouped_by_table(device_ids)
+
     with connections[RAW_DB].cursor() as cursor:
-        cursor.execute(sql, device_ids + device_ids)
-        rows = cursor.fetchall()
-    return {r[0]: r[1] for r in rows}
+        for table_name, dids in grouped.items():
+            cols = set(_table_columns(table_name))
+            if 'devid' not in cols or 'time' not in cols:
+                continue
+
+            placeholders = ','.join(['%s'] * len(dids))
+            sql = f"""
+            SELECT devid, MAX(`time`) AS latest_time
+            FROM `{table_name}`
+            WHERE devid IN ({placeholders}) AND `time` IS NOT NULL
+            GROUP BY devid
+            """
+            try:
+                cursor.execute(sql, dids)
+                for devid, latest_time in cursor.fetchall():
+                    if devid:
+                        latest_map[devid] = latest_time
+            except Exception:
+                continue
+
+    return latest_map
 
 
 def _get_latest_position_map(device_ids):
-    """按设备返回最新有效经纬度（跨两张原始表，性能优化版）。"""
+    """按设备返回最新有效经纬度（按devid前5位路由到对应业务表）。"""
     if not device_ids:
         return {}
-    placeholders = ','.join(['%s'] * len(device_ids))
-
-    sql_03001 = f"""
-    SELECT t.devid, t.`time` AS packet_time, t.latflag, t.lat, t.lonflag, t.lon
-    FROM `{TABLE_03001}` t
-    INNER JOIN (
-      SELECT devid, MAX(`time`) AS latest_time
-      FROM `{TABLE_03001}`
-      WHERE devid IN ({placeholders}) AND `time` IS NOT NULL
-      GROUP BY devid
-    ) m ON t.devid = m.devid AND t.`time` = m.latest_time
-    """
-
-    sql_03004 = f"""
-    SELECT t.devid, t.`time` AS packet_time, t.latflag, t.lat, t.lonflag, t.lon
-    FROM `{TABLE_03004}` t
-    INNER JOIN (
-      SELECT devid, MAX(`time`) AS latest_time
-      FROM `{TABLE_03004}`
-      WHERE devid IN ({placeholders}) AND `time` IS NOT NULL
-      GROUP BY devid
-    ) m ON t.devid = m.devid AND t.`time` = m.latest_time
-    """
-
-    rows = []
-    with connections[RAW_DB].cursor() as cursor:
-        cursor.execute(sql_03001, device_ids)
-        rows.extend(cursor.fetchall())
-        cursor.execute(sql_03004, device_ids)
-        rows.extend(cursor.fetchall())
 
     latest_pos = {}
-    for devid, packet_time, latflag, lat, lonflag, lon in rows:
-        nlat, nlon = _normalize_lat_lon(lat, lon, latflag, lonflag)
-        if nlat is None or nlon is None:
-            continue
+    grouped = _device_ids_grouped_by_table(device_ids)
 
-        exists = latest_pos.get(devid)
-        if not exists or (_to_naive(packet_time) and _to_naive(packet_time) >= _to_naive(exists['packet_time'])):
-            latest_pos[devid] = {
-                'latitude': nlat,
-                'longitude': nlon,
-                'packet_time': packet_time
-            }
+    with connections[RAW_DB].cursor() as cursor:
+        for table_name, dids in grouped.items():
+            cols = set(_table_columns(table_name))
+            required = {'devid', 'time', 'lat', 'lon'}
+            if not required.issubset(cols):
+                continue
+
+            latflag_expr = 'latflag' if 'latflag' in cols else 'NULL'
+            lonflag_expr = 'lonflag' if 'lonflag' in cols else 'NULL'
+            placeholders = ','.join(['%s'] * len(dids))
+
+            sql = f"""
+            SELECT t.devid, t.`time` AS packet_time, {latflag_expr} AS latflag, t.lat, {lonflag_expr} AS lonflag, t.lon
+            FROM `{table_name}` t
+            INNER JOIN (
+              SELECT devid, MAX(`time`) AS latest_time
+              FROM `{table_name}`
+              WHERE devid IN ({placeholders}) AND `time` IS NOT NULL
+              GROUP BY devid
+            ) m ON t.devid = m.devid AND t.`time` = m.latest_time
+            """
+            try:
+                cursor.execute(sql, dids)
+                rows = cursor.fetchall()
+            except Exception:
+                continue
+
+            for devid, packet_time, latflag, lat, lonflag, lon in rows:
+                nlat, nlon = _normalize_lat_lon(lat, lon, latflag, lonflag)
+                if nlat is None or nlon is None:
+                    continue
+                latest_pos[devid] = {
+                    'latitude': nlat,
+                    'longitude': nlon,
+                    'packet_time': packet_time
+                }
+
     return latest_pos
 
 
@@ -199,6 +360,70 @@ def _get_latest_row_by_device(table_name, device_id):
         )
         return _dict_fetch_one(cursor)
 
+
+def _build_trend_fields(table_name):
+    cols = _table_columns(table_name)
+    excluded = {'id', 'devid'}
+    fields = [c for c in cols if c not in excluded]
+    if 'time' in fields:
+        fields.remove('time')
+        fields.insert(0, 'time')
+    return fields
+
+
+def _safe_float(v):
+    try:
+        if v is None:
+            return None
+        return float(v)
+    except Exception:
+        return None
+
+
+def _build_latest_payload(latest_row):
+    lat = _safe_float(latest_row.get('lat'))
+    lon = _safe_float(latest_row.get('lon'))
+    if lat is not None or lon is not None:
+        nlat, nlon = _normalize_lat_lon(lat, lon, latest_row.get('latflag'), latest_row.get('lonflag'))
+    else:
+        nlat, nlon = None, None
+
+    payload = {
+        'packet_time': _fmt_dt(latest_row.get('time')),
+        'latitude': nlat,
+        'longitude': nlon
+    }
+
+    for k, v in latest_row.items():
+        if k == 'time':
+            continue
+        payload[k] = v
+    return payload
+
+
+def _get_latest_row_for_device(device_id):
+    table_name = _table_by_device_id(device_id)
+    if not table_name:
+        return None, None
+    row = _get_latest_row_by_device(table_name, device_id)
+    if not row:
+        return table_name, None
+    return table_name, row
+
+
+def _empty_trend_payload(device_id, source_table, range_type, start_dt, end_dt, page, page_size):
+    return {
+        'device_id': device_id,
+        'source_table': source_table or '',
+        'range_type': range_type,
+        'start_date': start_dt.strftime('%Y-%m-%d'),
+        'end_date': end_dt.strftime('%Y-%m-%d'),
+        'total': 0,
+        'page': page,
+        'page_size': page_size,
+        'columns': [],
+        'points': []
+    }
 
 
 def _default_year_range():
@@ -264,7 +489,7 @@ class DeviceListView(View):
             use_latest_position = request.GET.get('use_latest_position') in ['1', 'true', 'True']
 
             sql = """
-            SELECT id, devid, name, iridiumid, sensorflag, latflag, lat, lonflag, lon, workstate, display, ownership
+            SELECT id, name, devid, iridiumid, sensorflag, latflag, lat, lonflag, lon, workstate, display, ownership
             FROM `device_list`
             WHERE 1=1
             """
@@ -290,20 +515,29 @@ class DeviceListView(View):
 
             raw_list = []
             for row in rows:
-                raw_id, devid, name, iridiumid, sensorflag, latflag, lat, lonflag, lon, workstate, display_flag, own = row
+                raw_id, name, devid, iridiumid, sensorflag, latflag, lat, lonflag, lon, workstate, display_flag, own = row
                 nlat, nlon = _normalize_lat_lon(lat, lon, latflag, lonflag)
                 raw_list.append({
                     'id': int(raw_id) if raw_id is not None else 0,
-                    'device_id': devid,
+                    'name': name or '',
                     'device_name': name or devid,
+                    'devid': devid,
+                    'device_id': devid,
+                    'iridiumid': iridiumid or '',
                     'iridium_id': iridiumid or '',
                     'sensorflag': sensorflag or '',
-                    'ownership': own or '',
+                    'latflag': int(latflag) if latflag is not None else None,
+                    'lat': nlat,
                     'latitude': nlat,
+                    'lonflag': int(lonflag) if lonflag is not None else None,
+                    'lon': nlon,
                     'longitude': nlon,
                     'workstate': int(workstate) if workstate is not None else None,
                     'display': int(display_flag) if display_flag is not None else None,
-                    'device_type': _device_type_from_sensorflag(sensorflag),
+                    'ownership': own or '',
+                    'prefix5': _prefix_from_devid(devid),
+                    'source_table': _table_by_device_id(devid) or '',
+                    'device_type': _device_type_from_device_id(devid)
                 })
 
             if ownership:
@@ -392,7 +626,7 @@ class DeviceMapPointsView(View):
             if cached is not None:
                 return success(data=cached)
 
-            sql = "SELECT id, devid, name, sensorflag, ownership FROM `device_list` WHERE 1=1"
+            sql = "SELECT id, devid, name, ownership FROM `device_list` WHERE 1=1"
             params = []
             if user.type != 1:
                 device_ids = user.device_list or []
@@ -412,16 +646,17 @@ class DeviceMapPointsView(View):
             # device_list 可能存在重复 devid，按 device_id 去重（保留最新一条）
             base_device_map = {}
             for row in rows:
-                raw_id, devid, name, sensorflag, own = row
+                raw_id, devid, name, own = row
                 if not devid:
                     continue
                 base_device_map[devid] = {
                     'id': int(raw_id) if raw_id is not None else 0,
                     'device_id': devid,
                     'device_name': name or devid,
-                    'sensorflag': sensorflag or '',
+                    'prefix5': _prefix_from_devid(devid),
+                    'source_table': _table_by_device_id(devid) or '',
                     'ownership': own or '',
-                    'device_type': _device_type_from_sensorflag(sensorflag)
+                    'device_type': _device_type_from_device_id(devid)
                 }
             base_devices = list(base_device_map.values())
 
@@ -492,29 +727,11 @@ class DeviceDataLatestView(View):
             if user.type != 1 and device_id not in (user.device_list or []):
                 return error('设备不存在或无权限', code=404)
 
-            row_03001 = _get_latest_row_by_device(TABLE_03001, device_id)
-            row_03004 = _get_latest_row_by_device(TABLE_03004, device_id)
-
-            latest_row = None
-            source_table = ''
-            if row_03001 and row_03004:
-                t1 = _to_naive(row_03001.get('time'))
-                t2 = _to_naive(row_03004.get('time'))
-                if t2 and (not t1 or t2 >= t1):
-                    latest_row = row_03004
-                    source_table = TABLE_03004
-                else:
-                    latest_row = row_03001
-                    source_table = TABLE_03001
-            elif row_03001:
-                latest_row = row_03001
-                source_table = TABLE_03001
-            elif row_03004:
-                latest_row = row_03004
-                source_table = TABLE_03004
-
+            source_table, latest_row = _get_latest_row_for_device(device_id)
+            if not source_table:
+                return success(data={'device_id': device_id, 'source_table': '', 'latest': None, 'field_list': []})
             if not latest_row:
-                return success(data={'device_id': device_id, 'latest': None, 'field_list': []})
+                return success(data={'device_id': device_id, 'source_table': source_table, 'latest': None, 'field_list': []})
 
             comment_map = _get_comment_map(source_table)
             field_list = []
@@ -525,24 +742,10 @@ class DeviceDataLatestView(View):
                     v = _fmt_dt(v)
                 field_list.append({'field': k, 'label': _field_label(k, comment_map), 'value': v})
 
-            lat, lon = _normalize_lat_lon(latest_row.get('lat'), latest_row.get('lon'), latest_row.get('latflag'), latest_row.get('lonflag'))
-            latest = {
-                'packet_time': _fmt_dt(latest_row.get('time')),
-                'latitude': lat,
-                'longitude': lon,
-                'board_voltage': latest_row.get('board_voltage'),
-                'board_temp': latest_row.get('board_temp'),
-                'air_temp': latest_row.get('air_temp'),
-                'air_humid': latest_row.get('air_humid'),
-                'atmosphere': latest_row.get('atmosphere'),
-                'wind_speed': latest_row.get('wind_speed'),
-                'wind_direct': latest_row.get('wind_direct')
-            }
-
             return success(data={
                 'device_id': device_id,
                 'source_table': source_table,
-                'latest': latest,
+                'latest': _build_latest_payload(latest_row),
                 'field_list': field_list
             })
         except Exception as e:
@@ -581,74 +784,33 @@ class DeviceTrendView(View):
 
             offset = (page - 1) * page_size
 
-            comment_03001 = _get_comment_map(TABLE_03001)
-            comment_03004 = _get_comment_map(TABLE_03004)
+            source_table = _table_by_device_id(device_id)
+            if not source_table:
+                return success(data=_empty_trend_payload(device_id, '', range_type, start_dt, end_dt, page, page_size))
 
-            fields = [
-                'time', 'sn', 'iridiumid', 'latflag', 'lat', 'lonflag', 'lon',
-                'board_voltage', 'board_temp', 'air_temp', 'air_humid', 'atmosphere',
-                'wind_speed', 'wind_direct', 'bd_time', 'bd_posflag', 'bd_latflag',
-                'bd_lat', 'bd_lonflag', 'bd_lon', 'tempC150', 'tempC200_1',
-                'tempC200_2', 'tempC_pt', 'sonar_on', 'sonar_under', 'uploaded'
-            ]
+            cols = set(_table_columns(source_table))
+            if 'devid' not in cols or 'time' not in cols:
+                return success(data=_empty_trend_payload(device_id, source_table, range_type, start_dt, end_dt, page, page_size))
 
-            columns = []
-            for f in fields:
-                label = _field_label(f, comment_03004 if f in comment_03004 else comment_03001)
-                columns.append({'field': f, 'label': label})
+            fields = _build_trend_fields(source_table)
+            comment_map = _get_comment_map(source_table)
+            columns = [{'field': f, 'label': _field_label(f, comment_map)} for f in fields if f != 'time']
 
-            count_sql = f"""
-            SELECT COUNT(*) FROM (
-                SELECT `time` AS packet_time FROM `{TABLE_03001}` WHERE devid=%s AND `time` BETWEEN %s AND %s
-                UNION ALL
-                SELECT `time` AS packet_time FROM `{TABLE_03004}` WHERE devid=%s AND `time` BETWEEN %s AND %s
-            ) x
-            """
-
-            data_sql = f"""
-            SELECT * FROM (
-                SELECT '{TABLE_03001}' AS source_table,
-                       `time`, sn, iridiumid, latflag, lat, lonflag, lon,
-                       board_voltage, board_temp,
-                       NULL AS air_temp, NULL AS air_humid, atmosphere,
-                       NULL AS wind_speed, NULL AS wind_direct,
-                       bd_time, bd_posflag, bd_latflag, bd_lat, bd_lonflag, bd_lon,
-                       NULL AS tempC150, NULL AS tempC200_1, NULL AS tempC200_2, NULL AS tempC_pt,
-                       NULL AS sonar_on, NULL AS sonar_under,
-                       uploaded
-                FROM `{TABLE_03001}`
-                WHERE devid=%s AND `time` BETWEEN %s AND %s
-
-                UNION ALL
-
-                SELECT '{TABLE_03004}' AS source_table,
-                       `time`, sn, iridiumid, latflag, lat, lonflag, lon,
-                       board_voltage, board_temp,
-                       air_temp, air_humid, atmosphere,
-                       wind_speed, wind_direct,
-                       bd_time, bd_posflag, bd_latflag, bd_lat, bd_lonflag, bd_lon,
-                       tempC150, tempC200_1, tempC200_2, tempC_pt,
-                       sonar_on, sonar_under,
-                       uploaded
-                FROM `{TABLE_03004}`
-                WHERE devid=%s AND `time` BETWEEN %s AND %s
-            ) t
-            ORDER BY `time` ASC
-            LIMIT %s OFFSET %s
-            """
+            count_sql = f"SELECT COUNT(*) FROM `{source_table}` WHERE devid=%s AND `time` BETWEEN %s AND %s"
+            data_sql = f"SELECT * FROM `{source_table}` WHERE devid=%s AND `time` BETWEEN %s AND %s ORDER BY `time` DESC LIMIT %s OFFSET %s"
 
             with connections[RAW_DB].cursor() as cursor:
-                cursor.execute(count_sql, [device_id, start_dt, end_dt, device_id, start_dt, end_dt])
+                cursor.execute(count_sql, [device_id, start_dt, end_dt])
                 total_count = cursor.fetchone()[0]
 
-                cursor.execute(data_sql, [device_id, start_dt, end_dt, device_id, start_dt, end_dt, page_size, offset])
+                cursor.execute(data_sql, [device_id, start_dt, end_dt, page_size, offset])
                 rows = _dict_fetch_all(cursor)
 
             points = []
             for r in rows:
                 item = {
                     'time': _fmt_dt(r.get('time')),
-                    'source_table': r.get('source_table')
+                    'source_table': source_table
                 }
                 for f in fields:
                     item[f] = r.get(f)
@@ -656,6 +818,7 @@ class DeviceTrendView(View):
 
             return success(data={
                 'device_id': device_id,
+                'source_table': source_table,
                 'range_type': range_type,
                 'start_date': start_dt.strftime('%Y-%m-%d'),
                 'end_date': end_dt.strftime('%Y-%m-%d'),
@@ -685,18 +848,26 @@ class DeviceTrackView(View):
             if user.type != 1 and device_id not in (user.device_list or []):
                 return error('设备不存在或无权限', code=404)
 
+            source_table = _table_by_device_id(device_id)
+            if not source_table:
+                return success(data={'device_id': device_id, 'source_table': '', 'point_count': 0, 'points': []})
+
+            cols = set(_table_columns(source_table))
+            required = {'devid', 'time', 'lat', 'lon'}
+            if not required.issubset(cols):
+                return success(data={'device_id': device_id, 'source_table': source_table, 'point_count': 0, 'points': []})
+
+            latflag_expr = 'latflag' if 'latflag' in cols else 'NULL'
+            lonflag_expr = 'lonflag' if 'lonflag' in cols else 'NULL'
             sql = f"""
-            SELECT packet_time, latflag, lat, lonflag, lon FROM (
-                SELECT `time` AS packet_time, latflag, lat, lonflag, lon FROM `{TABLE_03001}` WHERE devid = %s
-                UNION ALL
-                SELECT `time` AS packet_time, latflag, lat, lonflag, lon FROM `{TABLE_03004}` WHERE devid = %s
-            ) t
-            WHERE lat IS NOT NULL AND lon IS NOT NULL AND packet_time IS NOT NULL
-            ORDER BY packet_time DESC
+            SELECT `time` AS packet_time, {latflag_expr} AS latflag, lat, {lonflag_expr} AS lonflag, lon
+            FROM `{source_table}`
+            WHERE devid=%s AND lat IS NOT NULL AND lon IS NOT NULL AND `time` IS NOT NULL
+            ORDER BY `time` DESC
             LIMIT %s
             """
             with connections[RAW_DB].cursor() as cursor:
-                cursor.execute(sql, [device_id, device_id, limit])
+                cursor.execute(sql, [device_id, limit])
                 rows = cursor.fetchall()
 
             points = []
@@ -706,7 +877,7 @@ class DeviceTrackView(View):
                     continue
                 points.append({'time': _fmt_dt(r[0]), 'lat': lat, 'lng': lon})
 
-            return success(data={'device_id': device_id, 'point_count': len(points), 'points': points})
+            return success(data={'device_id': device_id, 'source_table': source_table, 'point_count': len(points), 'points': points})
         except Exception as e:
             logger.exception('获取设备轨迹异常: %s', e)
             return error(str(e), code=500)
@@ -720,7 +891,7 @@ class DeviceOverviewView(View):
             if not user:
                 return error('登录状态已失效，请重新登录', code=10016)
 
-            sql = "SELECT devid, sensorflag, ownership FROM `device_list`"
+            sql = "SELECT devid, ownership FROM `device_list`"
             params = []
             if user.type != 1:
                 device_ids = user.device_list or []
@@ -740,8 +911,8 @@ class DeviceOverviewView(View):
             devids = []
             for d in devices:
                 devids.append(d[0])
-                dt = _device_type_from_sensorflag(d[1])
-                own = (d[2] or '')
+                dt = _device_type_from_device_id(d[0])
+                own = (d[1] or '')
                 if dt == 'station':
                     station_count += 1
                 else:
@@ -755,27 +926,41 @@ class DeviceOverviewView(View):
 
             latest_map = _get_latest_time_map(devids)
             online_devices = sum(1 for v in latest_map.values() if _is_online_time(v))
-            total_users = User.objects.filter(is_delete=0).count() if user.type == 1 else 1
+            total_users = User.objects.using(RAW_DB).filter(is_delete=0).count() if user.type == 1 else 1
 
-            with connections[RAW_DB].cursor() as cursor:
-                if devids:
-                    placeholders = ','.join(['%s'] * len(devids))
-                    cursor.execute(f"SELECT COUNT(*) FROM `{TABLE_03001}` WHERE devid IN ({placeholders})", devids)
-                    c1 = cursor.fetchone()[0]
-                    cursor.execute(f"SELECT COUNT(*) FROM `{TABLE_03004}` WHERE devid IN ({placeholders})", devids)
-                    c2 = cursor.fetchone()[0]
-                    cursor.execute(f"SELECT COUNT(*) FROM `{TABLE_03001}` WHERE devid IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL", devids)
-                    p1 = cursor.fetchone()[0]
-                    cursor.execute(f"SELECT COUNT(*) FROM `{TABLE_03004}` WHERE devid IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL", devids)
-                    p2 = cursor.fetchone()[0]
-                    cursor.execute(f"SELECT MAX(t) FROM (SELECT MAX(`time`) AS t FROM `{TABLE_03001}` WHERE devid IN ({placeholders}) UNION ALL SELECT MAX(`time`) AS t FROM `{TABLE_03004}` WHERE devid IN ({placeholders})) x", devids + devids)
-                    latest_packet = cursor.fetchone()[0]
-                else:
-                    c1 = c2 = p1 = p2 = 0
-                    latest_packet = None
+            total_packets = 0
+            valid_packets = 0
+            latest_packet = None
 
-            total_packets = c1 + c2
-            valid_packets = p1 + p2
+            if devids:
+                grouped = _device_ids_grouped_by_table(devids)
+                with connections[RAW_DB].cursor() as cursor:
+                    for table_name, dids in grouped.items():
+                        cols = set(_table_columns(table_name))
+                        if 'devid' not in cols or 'time' not in cols:
+                            continue
+
+                        placeholders = ','.join(['%s'] * len(dids))
+                        try:
+                            cursor.execute(f"SELECT COUNT(*) FROM `{table_name}` WHERE devid IN ({placeholders})", dids)
+                            total_packets += cursor.fetchone()[0]
+                        except Exception:
+                            continue
+
+                        if 'lat' in cols and 'lon' in cols:
+                            try:
+                                cursor.execute(f"SELECT COUNT(*) FROM `{table_name}` WHERE devid IN ({placeholders}) AND lat IS NOT NULL AND lon IS NOT NULL", dids)
+                                valid_packets += cursor.fetchone()[0]
+                            except Exception:
+                                pass
+
+                        try:
+                            cursor.execute(f"SELECT MAX(`time`) FROM `{table_name}` WHERE devid IN ({placeholders})", dids)
+                            t = cursor.fetchone()[0]
+                            if t and (not latest_packet or _to_naive(t) >= _to_naive(latest_packet)):
+                                latest_packet = t
+                        except Exception:
+                            pass
 
             return success(data={
                 'total_devices': total_devices,

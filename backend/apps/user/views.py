@@ -35,7 +35,7 @@ class LoginView(View):
             password = get_param(body, 'password')
             if not name or not password:
                 return error('用户名和密码不能为空', code=400)
-            user = User.objects.filter(name=name, is_delete=0).first()
+            user = User.objects.using('default').filter(name=name, is_delete=0).first()
             if not user:
                 return error('用户名或密码错误', code=400)
             if not check_password(password, user.password):
@@ -64,7 +64,7 @@ class UserListView(View):
             page = int(request.GET.get('page', 1))
             page_size = int(request.GET.get('page_size', 10))
             name = (request.GET.get('name') or '').strip()
-            qs = User.objects.filter(is_delete=0).order_by('id')
+            qs = User.objects.using('default').filter(is_delete=0).order_by('id')
             if name:
                 qs = qs.filter(name__icontains=name)
             total = qs.count()
@@ -104,9 +104,9 @@ class UserDetailView(View):
                 return error('用户名不能为空', code=400)
             if not password or len(password) < 6:
                 return error('密码不能少于6位', code=400)
-            if User.objects.filter(name=name, is_delete=0).exists():
+            if User.objects.using('default').filter(name=name, is_delete=0).exists():
                 return error('用户名已存在', code=400)
-            User.objects.create(
+            User.objects.using('default').create(
                 name=name,
                 password=make_password(password),
                 type=user_type,
@@ -125,7 +125,7 @@ class UserDetailView(View):
             uid = get_param(body, 'id') or body.get('id')
             if not uid:
                 return error('用户ID不能为空', code=400)
-            user = User.objects.filter(id=uid, is_delete=0).first()
+            user = User.objects.using('default').filter(id=uid, is_delete=0).first()
             if not user:
                 return error('用户不存在', code=404)
             user_type = get_param(body, 'type') or body.get('type')
@@ -147,7 +147,7 @@ class UserDetailView(View):
             uid = request.GET.get('id') or get_param(parse_body(request), 'id') or request.POST.get('id')
             if not uid:
                 return error('用户ID不能为空', code=400)
-            user = User.objects.filter(id=uid, is_delete=0).first()
+            user = User.objects.using('default').filter(id=uid, is_delete=0).first()
             if not user:
                 return error('用户不存在', code=404)
             user.is_delete = 1
@@ -168,7 +168,7 @@ class UserBatchDeleteView(View):
             ids = _normalize_str_list(body.get('ids') or body.get('id_list') or [])
             if not ids:
                 return error('请选择要删除的用户', code=400)
-            User.objects.filter(id__in=ids, is_delete=0).update(is_delete=1)
+            User.objects.using('default').filter(id__in=ids, is_delete=0).update(is_delete=1)
             logger.info('批量删除用户: ids=%s', ids)
             return success(msg='批量删除成功')
         except Exception as e:
@@ -188,7 +188,7 @@ class ResetPasswordView(View):
                 return error('用户ID不能为空', code=400)
             if not new_pwd or len(new_pwd) < 6:
                 return error('新密码不能少于6位', code=400)
-            user = User.objects.filter(id=uid, is_delete=0).first()
+            user = User.objects.using('default').filter(id=uid, is_delete=0).first()
             if not user:
                 return error('用户不存在', code=404)
             user.password = make_password(new_pwd)

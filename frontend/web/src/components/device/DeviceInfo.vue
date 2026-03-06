@@ -30,10 +30,16 @@
 
     <el-card shadow="never" class="table-card">
       <el-table v-loading="tableLoading" :data="tableData" border class="device-table" highlight-current-row empty-text="暂无设备数据">
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column prop="device_id" label="设备ID" width="130" />
-        <el-table-column prop="device_name" label="设备名称" min-width="140" />
-        <el-table-column prop="ownership" label="归属区域" min-width="140" />
+        <el-table-column prop="id" label="序号" width="70" />
+        <el-table-column prop="name" label="设备名称" min-width="140" />
+        <el-table-column prop="devid" label="设备序列号" width="150" />
+        <el-table-column prop="iridiumid" label="铱星号" width="120" />
+        <el-table-column prop="sensorflag" label="传感器标志位" min-width="140" />
+        <el-table-column prop="lat" label="纬度" width="110" />
+        <el-table-column prop="lon" label="经度" width="110" />
+        <el-table-column prop="workstate" label="工作状态" width="100" />
+        <el-table-column prop="display" label="同步标志位" width="110" />
+        <el-table-column prop="ownership" label="归属单位" min-width="140" />
         <el-table-column prop="last_report_time" label="最后上报时间" width="170" />
         <el-table-column prop="status_name" label="状态" width="90">
           <template slot-scope="scope">
@@ -165,6 +171,7 @@ export default {
       searchStatus: '',
       dataVisible: false,
       currentDevice: {},
+      currentSourceTable: '',
       latestFieldList: [],
       keyFieldList: [],
       otherFieldList: [],
@@ -180,7 +187,8 @@ export default {
   computed: {
     detailSubtitle () {
       if (!this.currentDevice.device_id) return ''
-      return `${this.currentDevice.device_name || this.currentDevice.device_id} - ${this.currentDevice.device_id}`
+      const base = `${this.currentDevice.device_name || this.currentDevice.device_id} - ${this.currentDevice.device_id}`
+      return this.currentSourceTable ? `${base}（${this.currentSourceTable}）` : base
     },
     sortedTrendColumns () {
       if (!this.trendColumns.length) return []
@@ -254,9 +262,16 @@ export default {
       }
     },
     splitLatestFields () {
-      const keyNames = ['time', 'packet_time', 'board_temp', 'air_temp', 'air_humid', 'atmosphere', 'wind_speed', 'wind_direct', 'lat', 'lon', 'latitude', 'longitude', 'board_voltage']
-      this.keyFieldList = this.latestFieldList.filter(item => keyNames.includes(item.field)).slice(0, 6)
-      this.otherFieldList = this.latestFieldList.filter(item => !this.keyFieldList.some(k => k.field === item.field))
+      const highPriority = ['time', 'packet_time', 'latitude', 'longitude', 'lat', 'lon', 'temp', 'board_temp', 'air_temp', 'humidity', 'air_humid', 'pressure', 'atmosphere', 'wind_speed', 'wind_direct', 'voltage', 'board_voltage']
+      const sorted = [...this.latestFieldList].sort((a, b) => {
+        const ai = highPriority.indexOf(a.field)
+        const bi = highPriority.indexOf(b.field)
+        const av = ai === -1 ? 999 : ai
+        const bv = bi === -1 ? 999 : bi
+        return av - bv
+      })
+      this.keyFieldList = sorted.slice(0, 8)
+      this.otherFieldList = sorted.slice(8)
     },
     showValue (val) {
       return val === undefined || val === null || val === '' ? '-' : val
@@ -313,6 +328,7 @@ export default {
     },
     resetDetailState (row) {
       this.currentDevice = row
+      this.currentSourceTable = ''
       this.latestFieldList = []
       this.keyFieldList = []
       this.otherFieldList = []
@@ -337,6 +353,7 @@ export default {
     applyTrendData (res) {
       if (res.code === 200) {
         const d = res.data || {}
+        this.currentSourceTable = d.source_table || this.currentSourceTable
         this.trendColumns = d.columns || []
         this.trendPoints = d.points || []
         this.trendTotal = d.total || 0
@@ -353,6 +370,7 @@ export default {
         const latestRes = await this.$axios.get('/device/data/latest/', { params: { device_id: row.device_id } })
         if (latestRes.data.code === 200) {
           const d = latestRes.data.data || {}
+          this.currentSourceTable = d.source_table || ''
           this.latestFieldList = d.field_list || []
           this.splitLatestFields()
         }
@@ -369,7 +387,7 @@ export default {
       const { data: res } = await this.$axios.get('/device/data/trend/', {
         params: {
           device_id: this.currentDevice.device_id,
-          range_type: 'year',
+          range_type: this.trendRangeType,
           start_date: startDate,
           end_date: endDate,
           page: this.trendPage,
