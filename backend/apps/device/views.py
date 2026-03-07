@@ -7,7 +7,7 @@
 from datetime import datetime
 import time
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Event
 
 from django.db import connections
 from django.views import View
@@ -842,7 +842,9 @@ class DeviceTrackView(View):
                 return error('登录状态已失效，请重新登录', code=10016)
 
             device_id = (request.GET.get('device_id') or '').strip()
-            limit = int(request.GET.get('limit', 200))
+            limit = int(request.GET.get('limit', 600))
+            start_date = (request.GET.get('start_date') or '').strip()
+            end_date = (request.GET.get('end_date') or '').strip()
             if not device_id:
                 return error('device_id不能为空', code=400)
             if user.type != 1 and device_id not in (user.device_list or []):
@@ -857,17 +859,23 @@ class DeviceTrackView(View):
             if not required.issubset(cols):
                 return success(data={'device_id': device_id, 'source_table': source_table, 'point_count': 0, 'points': []})
 
+            start_dt, end_dt = _parse_date_range(start_date, end_date)
+
             latflag_expr = 'latflag' if 'latflag' in cols else 'NULL'
             lonflag_expr = 'lonflag' if 'lonflag' in cols else 'NULL'
             sql = f"""
             SELECT `time` AS packet_time, {latflag_expr} AS latflag, lat, {lonflag_expr} AS lonflag, lon
             FROM `{source_table}`
-            WHERE devid=%s AND lat IS NOT NULL AND lon IS NOT NULL AND `time` IS NOT NULL
+            WHERE devid=%s
+              AND lat IS NOT NULL
+              AND lon IS NOT NULL
+              AND `time` IS NOT NULL
+              AND `time` BETWEEN %s AND %s
             ORDER BY `time` DESC
             LIMIT %s
             """
             with connections[RAW_DB].cursor() as cursor:
-                cursor.execute(sql, [device_id, limit])
+                cursor.execute(sql, [device_id, start_dt, end_dt, limit])
                 rows = cursor.fetchall()
 
             points = []
@@ -877,7 +885,14 @@ class DeviceTrackView(View):
                     continue
                 points.append({'time': _fmt_dt(r[0]), 'lat': lat, 'lng': lon})
 
-            return success(data={'device_id': device_id, 'source_table': source_table, 'point_count': len(points), 'points': points})
+            return success(data={
+                'device_id': device_id,
+                'source_table': source_table,
+                'point_count': len(points),
+                'start_date': start_dt.strftime('%Y-%m-%d'),
+                'end_date': end_dt.strftime('%Y-%m-%d'),
+                'points': points
+            })
         except Exception as e:
             logger.exception('获取设备轨迹异常: %s', e)
             return error(str(e), code=500)
@@ -985,12 +1000,15 @@ class DeviceOverviewView(View):
 @method_decorator(csrf_exempt, name='dispatch')
 class MapTileProxyView(View):
     _CACHE_TTL_SECONDS = 1800
-    _DISK_CACHE_TTL_SECONDS = 7 * 24 * 3600
-    _CLEANUP_INTERVAL_SECONDS = 3600
+    _MEMORY_CACHE_MAX_ITEMS = 4000
+    _DISK_CACHE_MAX_BYTES = 20 * 1024 * 1024 * 1024  # 20GB
+    _DISK_USAGE_REFRESH_SECONDS = 60
     _cache = {}
+    _inflight = {}
     _cache_lock = Lock()
     _disk_cache_root = Path(__file__).resolve().parents[2] / 'cache' / 'map_tiles'
-    _last_cleanup_ts = 0
+    _disk_usage_bytes = 0
+    _last_usage_check_ts = 0
 
     @classmethod
     def _cache_key(cls, x, y, z, style, lang):
@@ -1007,31 +1025,32 @@ class MapTileProxyView(View):
         return tile_dir / f'{y}.meta'
 
     @classmethod
-    def _maybe_cleanup_disk_cache(cls):
+    def _get_disk_usage_bytes(cls, force=False):
         now = time.time()
         with cls._cache_lock:
-            if now - cls._last_cleanup_ts < cls._CLEANUP_INTERVAL_SECONDS:
-                return
-            cls._last_cleanup_ts = now
+            if (not force) and cls._disk_usage_bytes > 0 and (now - cls._last_usage_check_ts) < cls._DISK_USAGE_REFRESH_SECONDS:
+                return cls._disk_usage_bytes
 
+        total = 0
         root = cls._disk_cache_root
-        if not root.exists():
-            return
+        if root.exists():
+            try:
+                for path in root.rglob('*.tile'):
+                    if path.is_file():
+                        total += path.stat().st_size
+            except Exception as e:
+                logger.warning('统计瓦片磁盘占用失败: %s', e)
 
-        expire_before = now - cls._DISK_CACHE_TTL_SECONDS
-        try:
-            for path in root.rglob('*'):
-                if not path.is_file():
-                    continue
-                if path.suffix not in ('.tile', '.meta'):
-                    continue
-                try:
-                    if path.stat().st_mtime < expire_before:
-                        path.unlink(missing_ok=True)
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.warning('清理瓦片磁盘缓存失败: %s', e)
+        with cls._cache_lock:
+            cls._disk_usage_bytes = total
+            cls._last_usage_check_ts = now
+        return total
+
+    @classmethod
+    def _can_write_disk_cache(cls, incoming_size, current_tile_size=0):
+        used = cls._get_disk_usage_bytes(force=False)
+        projected = used - max(current_tile_size, 0) + max(incoming_size, 0)
+        return projected <= cls._DISK_CACHE_MAX_BYTES
 
     @classmethod
     def _get_from_cache(cls, key):
@@ -1053,20 +1072,20 @@ class MapTileProxyView(View):
                 'content': content,
                 'content_type': content_type
             }
+            if len(cls._cache) > cls._MEMORY_CACHE_MAX_ITEMS:
+                drop_count = max(1, len(cls._cache) - cls._MEMORY_CACHE_MAX_ITEMS)
+                oldest_keys = sorted(cls._cache.keys(), key=lambda k: cls._cache[k]['ts'])[:drop_count]
+                for k in oldest_keys:
+                    cls._cache.pop(k, None)
 
     @classmethod
-    def _get_from_disk_cache(cls, x, y, z, style, lang, allow_stale=False):
+    def _get_from_disk_cache(cls, x, y, z, style, lang):
         tile_path = cls._disk_tile_path(x, y, z, style, lang)
         meta_path = cls._disk_meta_path(x, y, z, style, lang)
         if not tile_path.exists():
             return None
 
         try:
-            mtime = tile_path.stat().st_mtime
-            expired = (time.time() - mtime) > cls._DISK_CACHE_TTL_SECONDS
-            if expired and not allow_stale:
-                return None
-
             content = tile_path.read_bytes()
             if not content:
                 return None
@@ -1082,8 +1101,7 @@ class MapTileProxyView(View):
 
             return {
                 'content': content,
-                'content_type': content_type,
-                'stale': expired
+                'content_type': content_type
             }
         except Exception as e:
             logger.warning('读取瓦片磁盘缓存失败 %s: %s', tile_path, e)
@@ -1094,13 +1112,60 @@ class MapTileProxyView(View):
         tile_path = cls._disk_tile_path(x, y, z, style, lang)
         meta_path = cls._disk_meta_path(x, y, z, style, lang)
         try:
+            current_tile_size = tile_path.stat().st_size if tile_path.exists() else 0
+            incoming_size = len(content or b'')
+            if incoming_size <= 0:
+                return False
+            if not cls._can_write_disk_cache(incoming_size, current_tile_size=current_tile_size):
+                return False
+
             tile_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = tile_path.with_suffix('.tmp')
             tmp_path.write_bytes(content)
             tmp_path.replace(tile_path)
             meta_path.write_text(content_type or 'image/png', encoding='utf-8')
+
+            with cls._cache_lock:
+                cls._disk_usage_bytes = max(0, cls._disk_usage_bytes - current_tile_size + incoming_size)
+                cls._last_usage_check_ts = time.time()
+            return True
         except Exception as e:
             logger.warning('写入瓦片磁盘缓存失败 %s: %s', tile_path, e)
+            return False
+
+    @classmethod
+    def _acquire_inflight(cls, key):
+        with cls._cache_lock:
+            evt = cls._inflight.get(key)
+            if evt is None:
+                evt = Event()
+                cls._inflight[key] = evt
+                return evt, True
+            return evt, False
+
+    @classmethod
+    def _release_inflight(cls, key):
+        with cls._cache_lock:
+            evt = cls._inflight.pop(key, None)
+        if evt:
+            evt.set()
+
+    @classmethod
+    def _acquire_inflight(cls, key):
+        with cls._cache_lock:
+            evt = cls._inflight.get(key)
+            if evt is None:
+                evt = Event()
+                cls._inflight[key] = evt
+                return evt, True
+            return evt, False
+
+    @classmethod
+    def _release_inflight(cls, key):
+        with cls._cache_lock:
+            evt = cls._inflight.pop(key, None)
+        if evt:
+            evt.set()
 
     def _fetch(self, request, target_url):
         session = requests.Session()
@@ -1126,7 +1191,6 @@ class MapTileProxyView(View):
             return error('x,y,z不能为空', code=400)
 
         key = self._cache_key(x, y, z, style, lang)
-        self._maybe_cleanup_disk_cache()
 
         cached = self._get_from_cache(key)
         if cached:
@@ -1135,13 +1199,31 @@ class MapTileProxyView(View):
             response['X-Map-Cache'] = 'memory-hit'
             return response
 
-        disk_cached = self._get_from_disk_cache(x, y, z, style, lang, allow_stale=False)
+        disk_cached = self._get_from_disk_cache(x, y, z, style, lang)
         if disk_cached:
             self._set_cache(key, disk_cached['content'], disk_cached['content_type'])
             response = HttpResponse(disk_cached['content'], content_type=disk_cached['content_type'])
             response['Cache-Control'] = 'public, max-age=300'
             response['X-Map-Cache'] = 'disk-hit'
             return response
+
+        wait_evt, is_owner = self._acquire_inflight(key)
+        if not is_owner:
+            wait_evt.wait(timeout=8)
+            cached_after_wait = self._get_from_cache(key)
+            if cached_after_wait:
+                response = HttpResponse(cached_after_wait['content'], content_type=cached_after_wait['content_type'])
+                response['Cache-Control'] = 'public, max-age=300'
+                response['X-Map-Cache'] = 'memory-hit-wait'
+                return response
+
+            disk_cached_after_wait = self._get_from_disk_cache(x, y, z, style, lang)
+            if disk_cached_after_wait:
+                self._set_cache(key, disk_cached_after_wait['content'], disk_cached_after_wait['content_type'])
+                response = HttpResponse(disk_cached_after_wait['content'], content_type=disk_cached_after_wait['content_type'])
+                response['Cache-Control'] = 'public, max-age=300'
+                response['X-Map-Cache'] = 'disk-hit-wait'
+                return response
 
         hosts = [
             'https://webst01.is.autonavi.com',
@@ -1152,34 +1234,30 @@ class MapTileProxyView(View):
         random.shuffle(hosts)
 
         last_error = None
-        for host in hosts:
-            if style == '8':
-                target_url = f'{host}/appmaptile?x={x}&y={y}&z={z}&lang={lang}&style=8'
-            else:
-                target_url = f'{host}/appmaptile?x={x}&y={y}&z={z}&style={style}'
+        try:
+            for host in hosts:
+                if style == '8':
+                    target_url = f'{host}/appmaptile?x={x}&y={y}&z={z}&lang={lang}&style=8'
+                else:
+                    target_url = f'{host}/appmaptile?x={x}&y={y}&z={z}&style={style}'
 
-            try:
-                resp = self._fetch(request, target_url)
-                if resp.status_code == 200 and resp.content:
-                    content_type = resp.headers.get('Content-Type', 'image/png')
-                    self._set_cache(key, resp.content, content_type)
-                    self._set_disk_cache(x, y, z, style, lang, resp.content, content_type)
-                    response = HttpResponse(resp.content, content_type=content_type)
-                    response['Cache-Control'] = 'public, max-age=1800'
-                    response['X-Map-Upstream'] = host
-                    response['X-Map-Cache'] = 'miss'
-                    return response
-                last_error = f'status={resp.status_code}'
-            except Exception as e:
-                last_error = str(e)
+                try:
+                    resp = self._fetch(request, target_url)
+                    if resp.status_code == 200 and resp.content:
+                        content_type = resp.headers.get('Content-Type', 'image/png')
+                        self._set_cache(key, resp.content, content_type)
+                        written = self._set_disk_cache(x, y, z, style, lang, resp.content, content_type)
+                        response = HttpResponse(resp.content, content_type=content_type)
+                        response['Cache-Control'] = 'public, max-age=1800'
+                        response['X-Map-Upstream'] = host
+                        response['X-Map-Cache'] = 'miss-disk-write' if written else 'miss-disk-bypass'
+                        return response
+                    last_error = f'status={resp.status_code}'
+                except Exception as e:
+                    last_error = str(e)
 
-        stale_cached = self._get_from_disk_cache(x, y, z, style, lang, allow_stale=True)
-        if stale_cached:
-            self._set_cache(key, stale_cached['content'], stale_cached['content_type'])
-            response = HttpResponse(stale_cached['content'], content_type=stale_cached['content_type'])
-            response['Cache-Control'] = 'public, max-age=60'
-            response['X-Map-Cache'] = 'disk-stale'
-            return response
-
-        logger.warning('地图瓦片代理失败 x=%s y=%s z=%s style=%s err=%s', x, y, z, style, last_error)
-        return HttpResponse('地图瓦片代理失败', status=502, content_type='text/plain; charset=utf-8')
+            logger.warning('地图瓦片代理失败 x=%s y=%s z=%s style=%s err=%s', x, y, z, style, last_error)
+            return HttpResponse('地图瓦片代理失败', status=502, content_type='text/plain; charset=utf-8')
+        finally:
+            if is_owner:
+                self._release_inflight(key)

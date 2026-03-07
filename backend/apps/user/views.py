@@ -17,12 +17,23 @@ from utils import token_store, success, error, parse_body, get_param, logger
 
 
 def _normalize_str_list(value):
-    """将字符串/列表统一转换为去空格后的字符串列表。"""
+    """将字符串/列表统一转换为去空格后的字符串列表（支持列表元素内含逗号的历史脏数据）。"""
+    items = []
     if isinstance(value, str):
-        return [x.strip() for x in value.split(',') if x.strip()]
-    if isinstance(value, list):
-        return [str(x).strip() for x in value if str(x).strip()]
-    return []
+        items = [value]
+    elif isinstance(value, list):
+        items = [str(x) for x in value]
+    else:
+        return []
+
+    result = []
+    for item in items:
+        parts = str(item).split(',')
+        for p in parts:
+            s = p.strip()
+            if s:
+                result.append(s)
+    return result
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -70,19 +81,20 @@ class UserListView(View):
             total = qs.count()
             paginator = Paginator(qs, page_size)
             page_obj = paginator.get_page(page)
-            user_list = [
-                {
+            user_list = []
+            for u in page_obj:
+                normalized_devices = _normalize_str_list(u.device_list or [])
+                user_list.append({
                     'id': u.id,
                     'name': u.name,
                     'type': u.type,
                     'type_name': '超级管理员' if u.type == 1 else '客户',
-                    'device_list': u.device_list or [],
-                    'device_list_str': ','.join(map(str, u.device_list or [])),
+                    'device_list': normalized_devices,
+                    'device_count': len(normalized_devices),
+                    'device_list_str': ','.join(normalized_devices),
                     'create_time': u.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                     'update_time': u.update_time.strftime('%Y-%m-%d %H:%M:%S')
-                }
-                for u in page_obj
-            ]
+                })
             return success(data={'user_list': user_list, 'total': total})
         except Exception as e:
             logger.exception('用户列表异常: %s', e)

@@ -8,7 +8,7 @@
 
     <el-card shadow="never" class="toolbar-card">
       <el-row :gutter="10" class="toolbar">
-        <el-col :span="8">
+        <el-col :span="8" class="toolbar-search">
           <el-input
             v-model="searchName"
             placeholder="请输入用户名"
@@ -23,7 +23,7 @@
           </el-input>
         </el-col>
 
-        <el-col :span="8" class="toolbar-buttons">
+        <el-col :span="16" class="toolbar-buttons">
           <el-button
             type="primary"
             icon="el-icon-circle-plus-outline"
@@ -59,10 +59,11 @@
         <el-table-column prop="id" label="用户ID" width="80" />
         <el-table-column prop="name" label="用户名" />
         <el-table-column prop="type_name" label="用户类型" width="120" />
-        <el-table-column prop="device_list_str" label="关联设备" min-width="200">
+        <el-table-column prop="device_list_str" label="关联设备" min-width="240">
           <template slot-scope="scope">
-            <span v-if="scope.row.device_list && scope.row.device_list.length">
-              {{ scope.row.device_list.join(', ') }}
+            <span v-if="scope.row.device_list && scope.row.device_list.length" class="device-cell-text" :title="scope.row.device_list.join(', ')">
+              {{ scope.row.device_list.slice(0, 3).join(', ') }}
+              <span v-if="scope.row.device_list.length > 3"> 等{{ scope.row.device_list.length }}台</span>
             </span>
             <span v-else class="text-muted">暂无</span>
           </template>
@@ -133,31 +134,25 @@
     <el-dialog
       title="选择关联设备"
       :visible.sync="deviceSelectVisible"
-      width="600px"
+      width="680px"
       @close="closeDeviceSelect"
     >
-      <el-input
-        v-model="deviceSearchKeyword"
-        placeholder="输入设备名称或设备ID搜索"
-        clearable
-        prefix-icon="el-icon-search"
-        style="margin-bottom: 12px"
-        @clear="searchDeviceList"
-        @keyup.enter.native="searchDeviceList"
-        @input="searchDeviceList"
-      />
       <el-table
         ref="deviceTable"
         :data="filteredDeviceList"
         border
-        height="320"
-        row-key="device_id"
+        height="360"
+        row-key="__rowKey"
         @selection-change="handleDeviceSelectionChange"
       >
         <el-table-column type="selection" width="55" :reserve-selection="true" />
-        <el-table-column prop="device_id" label="设备ID" width="140" />
+        <el-table-column prop="device_id" label="设备ID" width="180" />
         <el-table-column prop="device_name" label="设备名称" />
       </el-table>
+      <div class="device-select-actions">
+        <el-checkbox v-model="deviceSelectAll" @change="handleDeviceSelectAllChange">全选当前结果</el-checkbox>
+        <span class="text-muted">已选 {{ selectedDevices.length }} 台设备</span>
+      </div>
       <div slot="footer" class="dialog-footer">
         <el-button @click="deviceSelectVisible = false">取消</el-button>
         <el-button type="primary" @click="confirmDeviceSelect">确定</el-button>
@@ -210,8 +205,8 @@ export default {
       resetPwdForm: {},
       allDeviceList: [],
       filteredDeviceList: [],
-      deviceSearchKeyword: '',
       selectedDevices: [],
+      deviceSelectAll: false,
 
       rules: {
         name: [
@@ -233,19 +228,23 @@ export default {
       }
     }
   },
-
   computed: {
     deviceListDisplay () {
       const ids = (this.form.device_list || []).length
-      return ids ? `已选 ${ids} 个设备` : ''
+      return ids ? `已选 ${ids} 台设备` : ''
     }
   },
-
   created () {
     this.getTableData()
   },
-
   methods: {
+    normalizeDeviceRows (list) {
+      if (!Array.isArray(list)) return []
+      return list.map((item, idx) => ({
+        ...item,
+        __rowKey: `${String(item.device_id || '')}_${idx}`
+      }))
+    },
     async getTableData () {
       this.tableLoading = true
       try {
@@ -257,7 +256,8 @@ export default {
           }
         })
         if (res.code === 200) {
-          this.tableData = res.data.user_list
+          const list = (res.data && res.data.user_list) || []
+          this.tableData = list
           this.total = res.data.total
         } else {
           this.$message.error(res.msg || '获取列表失败')
@@ -310,13 +310,13 @@ export default {
     },
 
     async openDeviceSelect () {
-      this.deviceSearchKeyword = ''
       const { data: res } = await this.$axios.get('/device/simple_list/')
       if (res.code === 200) {
-        this.allDeviceList = res.data.device_list || []
+        this.allDeviceList = this.normalizeDeviceRows(res.data.device_list || [])
         this.filteredDeviceList = [...this.allDeviceList]
         this.selectedDevices = []
         this.deviceSelectVisible = true
+        this.deviceSelectAll = false
         this.$nextTick(() => {
           if (this.$refs.deviceTable && this.form.device_list && this.form.device_list.length) {
             this.filteredDeviceList.forEach(row => {
@@ -324,25 +324,26 @@ export default {
                 this.$refs.deviceTable.toggleRowSelection(row, true)
               }
             })
+            this.selectedDevices = this.filteredDeviceList.filter(d => this.form.device_list.includes(d.device_id))
+            this.deviceSelectAll = this.filteredDeviceList.length > 0 && this.selectedDevices.length === this.filteredDeviceList.length
           }
         })
       }
     },
 
-    searchDeviceList () {
-      const kw = (this.deviceSearchKeyword || '').trim().toLowerCase()
-      if (!kw) {
-        this.filteredDeviceList = [...this.allDeviceList]
-      } else {
-        this.filteredDeviceList = this.allDeviceList.filter(d =>
-          (d.device_id || '').toLowerCase().includes(kw) ||
-          (d.device_name || '').toLowerCase().includes(kw)
-        )
-      }
-    },
-
     handleDeviceSelectionChange (rows) {
       this.selectedDevices = rows
+      this.deviceSelectAll = this.filteredDeviceList.length > 0 && rows.length === this.filteredDeviceList.length
+    },
+
+    handleDeviceSelectAllChange (checked) {
+      if (!this.$refs.deviceTable) return
+      this.$refs.deviceTable.clearSelection()
+      if (checked) {
+        this.filteredDeviceList.forEach(row => {
+          this.$refs.deviceTable.toggleRowSelection(row, true)
+        })
+      }
     },
 
     confirmDeviceSelect () {
@@ -351,12 +352,11 @@ export default {
     },
 
     closeDeviceSelect () {
-      this.deviceSearchKeyword = ''
       this.allDeviceList = []
       this.filteredDeviceList = []
       this.selectedDevices = []
+      this.deviceSelectAll = false
     },
-
     resetForm () {
       this.$refs.userForm && this.$refs.userForm.resetFields()
       this.form = {}
@@ -487,10 +487,16 @@ export default {
   align-items: center;
 }
 
+.toolbar-search {
+  max-width: 560px;
+}
+
 .toolbar-buttons {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 10px;
+  margin-left: auto;
 }
 
 .table-card {
@@ -523,6 +529,17 @@ export default {
 .pagination {
   margin-top: 16px;
   text-align: right;
+}
+
+.device-cell-text {
+  color: #334155;
+}
+
+.device-select-actions {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .dialog-footer {

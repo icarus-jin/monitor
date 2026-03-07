@@ -4,7 +4,7 @@ import {
   Menu, Submenu, MenuItem, RadioGroup, RadioButton, Divider, Breadcrumb, BreadcrumbItem,
   Table, TableColumn, Pagination, Dialog, MessageBox, Tag, Select, Option, Tree, Card,
   Cascader, Tabs, TabPane, Steps, Step, CheckboxGroup, Checkbox, Upload, Timeline, TimelineItem,
-  DatePicker, Switch, Collapse, CollapseItem, Empty, Slider, Loading, ColorPicker
+  DatePicker, Switch, Collapse, CollapseItem, Empty, Slider, Loading, ColorPicker, Popover
 } from 'element-ui'
 import TreeTable from 'vue-table-with-tree-grid'
 import VueQuillEditor from 'vue-quill-editor'
@@ -18,7 +18,7 @@ const elements = [
   Menu, Submenu, MenuItem, RadioGroup, RadioButton, Divider, Breadcrumb, BreadcrumbItem,
   Table, TableColumn, Pagination, Dialog, Tag, Select, Option, Tree, Card,
   Cascader, Tabs, TabPane, Steps, Step, CheckboxGroup, Checkbox, Upload, Timeline, TimelineItem,
-  DatePicker, Switch, Collapse, CollapseItem, Empty, Slider, ColorPicker
+  DatePicker, Switch, Collapse, CollapseItem, Empty, Slider, ColorPicker, Popover
 ]
 
 elements.forEach(el => Vue.use(el))
