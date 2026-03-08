@@ -23,6 +23,22 @@
         <button class="scene-btn" :class="{ active: currentSceneMode === '2D' }" :disabled="isSwitchingScene" @click="switchSceneMode('2D')">2D</button>
       </div>
     </div>
+
+    <el-dialog
+      :visible.sync="deviceCardVisible"
+      :append-to-body="true"
+      :show-close="false"
+      :fullscreen="true"
+      custom-class="device-detail-embed-dialog"
+    >
+      <button class="floating-close-btn" @click="deviceCardVisible = false">×</button>
+      <iframe
+        v-if="detailFrameUrl"
+        :src="detailFrameUrl"
+        class="detail-embed-frame"
+        frameborder="0"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -55,6 +71,9 @@ export default {
       isSwitchingScene: false,
       pendingRenderTimer: null,
       scaleTuneTimer: null,
+      mapClickHandler: null,
+      deviceCardVisible: false,
+      detailFrameUrl: '',
       loadingText: '地图加载中...'
     }
   },
@@ -73,12 +92,37 @@ export default {
       this.scaleTuneTimer = null
     }
     this.clearDeviceEntities()
+    if (this.mapClickHandler && this.map && this.map.viewer) {
+      this.mapClickHandler.destroy()
+      this.mapClickHandler = null
+    }
     if (this.map) {
       this.map.destroy()
       this.map = null
     }
   },
   methods: {
+    bindMapDeviceClick () {
+      if (!this.map || !this.map.viewer) return
+      const Cesium = mars3d.Cesium
+      if (this.mapClickHandler) {
+        this.mapClickHandler.destroy()
+        this.mapClickHandler = null
+      }
+      this.mapClickHandler = new Cesium.ScreenSpaceEventHandler(this.map.viewer.scene.canvas)
+      this.mapClickHandler.setInputAction((movement) => {
+        const picked = this.map.viewer.scene.pick(movement.position)
+        if (!picked) return
+        const entity = picked.id
+        const pid = entity && entity.properties && entity.properties.device_id
+        const deviceId = pid && typeof pid.getValue === 'function' ? pid.getValue() : ''
+        if (!deviceId) return
+        const did = String(deviceId).trim()
+        const base = `${window.location.origin}${window.location.pathname}`
+        this.detailFrameUrl = `${base}#/device_list?device_id=${encodeURIComponent(did)}&embed=1&_t=${Date.now()}`
+        this.deviceCardVisible = true
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+    },
     initMap3D () {
       try {
         this.map3dLoading = true
@@ -138,6 +182,7 @@ export default {
         }
 
         this.map = new mars3d.Map('mars3dContainer', mapOptions)
+        this.bindMapDeviceClick()
 
         const creditContainer = this.map?.viewer?.cesiumWidget?.creditContainer
         if (creditContainer) {
@@ -566,5 +611,53 @@ export default {
   color: #fff;
   border-color: #ef4444;
   background: rgba(239, 68, 68, 0.4);
+}
+
+::v-deep .device-detail-embed-dialog {
+  margin: 0 !important;
+}
+
+::v-deep .device-detail-embed-dialog .el-dialog {
+  margin: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+::v-deep .device-detail-embed-dialog .el-dialog__header {
+  display: none;
+}
+
+::v-deep .device-detail-embed-dialog .el-dialog__body {
+  position: relative;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.floating-close-btn {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 10;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.65);
+  color: #fff;
+  font-size: 24px;
+  line-height: 34px;
+  cursor: pointer;
+}
+
+.detail-embed-frame {
+  width: 100%;
+  height: 100vh;
+  display: block;
+  border: none;
+  background: #fff;
 }
 </style>

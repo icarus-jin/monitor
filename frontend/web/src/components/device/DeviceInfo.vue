@@ -1,12 +1,12 @@
 <template>
-  <div class="device-page">
-    <el-breadcrumb separator-class="el-icon-arrow-right" class="breadcrumb">
+  <div :class="['device-page', { 'device-page-embed': isEmbedMode }]">
+    <el-breadcrumb v-if="!isEmbedMode" separator-class="el-icon-arrow-right" class="breadcrumb">
       <el-breadcrumb-item to="/home">首页</el-breadcrumb-item>
       <el-breadcrumb-item>设备管理</el-breadcrumb-item>
       <el-breadcrumb-item>设备列表</el-breadcrumb-item>
     </el-breadcrumb>
 
-    <el-card shadow="never" class="filter-card">
+    <el-card v-if="!isEmbedMode" shadow="never" class="filter-card">
       <el-row :gutter="12" class="toolbar">
         <el-col :span="8">
           <el-input v-model="searchKeyword" placeholder="输入设备名称或设备ID搜索" clearable @clear="search" @keyup.enter.native="search">
@@ -28,7 +28,7 @@
       </el-row>
     </el-card>
 
-    <el-card shadow="never" class="table-card">
+    <el-card v-if="!isEmbedMode" shadow="never" class="table-card">
       <el-table v-loading="tableLoading" :data="tableData" border class="device-table" highlight-current-row empty-text="暂无设备数据">
         <el-table-column prop="id" label="序号" width="70" />
         <el-table-column prop="name" label="设备名称" min-width="140" />
@@ -68,7 +68,7 @@
       />
     </el-card>
 
-    <el-dialog :visible.sync="dataVisible" width="1200px" top="3vh" class="device-detail-dialog" @opened="onDetailDialogOpened" @closed="onDetailDialogClosed">
+    <el-dialog :visible.sync="dataVisible" :width="isEmbedMode ? '100%' : '1200px'" :fullscreen="isEmbedMode" :show-close="!isEmbedMode" :modal="!isEmbedMode" :close-on-click-modal="!isEmbedMode" top="3vh" class="device-detail-dialog" @opened="onDetailDialogOpened" @closed="onDetailDialogClosed">
       <template slot="title">
         <div class="dialog-title-wrap">
           <span class="dialog-title-main">设备详情</span>
@@ -316,6 +316,9 @@ export default {
     }
   },
   computed: {
+    isEmbedMode () {
+      return String(this.$route.query.embed || '') === '1'
+    },
     detailSubtitle () {
       if (!this.currentDevice.device_id) return ''
       const base = `${this.currentDevice.device_name || this.currentDevice.device_id} - ${this.currentDevice.device_id}`
@@ -338,8 +341,20 @@ export default {
     }
   },
   created () {
-    this.getTableData()
     this.initDefaultYearRange()
+    if (!this.isEmbedMode) {
+      this.getTableData()
+    }
+  },
+  watch: {
+    '$route.query.device_id': {
+      immediate: true,
+      handler (val) {
+        const did = String(val || '').trim()
+        if (!did) return
+        this.tryOpenDeviceFromRoute(did)
+      }
+    }
   },
   mounted () {
     window.addEventListener('resize', this.handleWindowResize)
@@ -856,6 +871,28 @@ export default {
         this.tableLoading = false
       }
     },
+    async tryOpenDeviceFromRoute (deviceId) {
+      try {
+        const hit = (this.tableData || []).find(item => String(item.device_id || item.devid || '').trim() === deviceId)
+        if (hit) {
+          await this.showData(hit)
+          return
+        }
+        const { data: res } = await this.$axios.get('/device/list/', {
+          params: {
+            page: 1,
+            page_size: 200,
+            keyword: deviceId
+          }
+        })
+        if (res.code !== 200) return
+        const list = (res.data && res.data.device_list) || []
+        const row = list.find(item => String(item.device_id || item.devid || '').trim() === deviceId)
+        if (row) await this.showData(row)
+      } catch (e) {
+        console.error('[route-open-device] 打开设备详情失败', e)
+      }
+    },
     search () {
       this.page = 1
       this.getTableData()
@@ -999,6 +1036,7 @@ export default {
 
 <style scoped>
 .device-page { padding: 22px; min-height: 100vh; font-size: 14px; background: #f1f5f9; }
+.device-page-embed { padding: 0; min-height: 100vh; background: transparent; }
 .breadcrumb { margin-bottom: 14px; }
 .filter-card, .table-card, .summary-card, .inner-card { border-radius: 12px; border: 1px solid #e2e8f0; }
 .filter-card { margin-bottom: 12px; }
