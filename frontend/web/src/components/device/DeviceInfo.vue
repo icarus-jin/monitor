@@ -24,12 +24,24 @@
             <el-option label="离线" value="0" />
           </el-select>
         </el-col>
-        <el-col :span="6" class="toolbar-buttons"></el-col>
+        <el-col :span="6" class="toolbar-buttons">
+          <span class="selected-tip">选中 <b>{{ selectedDevices.length }}</b> 台</span>
+          <el-button
+            size="mini"
+            type="primary"
+            :loading="exporting"
+            :disabled="!selectedDevices.length || exporting"
+            @click="exportSelected"
+          >
+            导出
+          </el-button>
+        </el-col>
       </el-row>
     </el-card>
 
     <el-card v-if="!isEmbedMode" shadow="never" class="table-card">
-      <el-table v-loading="tableLoading" :data="tableData" border class="device-table" highlight-current-row empty-text="暂无设备数据">
+      <el-table v-loading="tableLoading" :data="tableData" border class="device-table" highlight-current-row empty-text="暂无设备数据" @selection-change="handleSelectionChange" ref="deviceTableRef">
+        <el-table-column type="selection" width="48" align="center" />
         <el-table-column prop="id" label="序号" width="70" />
         <el-table-column prop="name" label="设备名称" min-width="140" />
         <el-table-column prop="devid" label="设备序列号" width="150" />
@@ -272,6 +284,8 @@ export default {
       searchKeyword: '',
       searchOwnership: '',
       searchStatus: '',
+      selectedDevices: [],
+      exporting: false,
       dataVisible: false,
       currentDevice: {},
       currentSourceTable: '',
@@ -658,13 +672,6 @@ export default {
       }
       this.renderTrackToMap()
     },
-    handleTrackLeave () {
-      this.activeTrackIndex = -1
-      this.trackHover.visible = false
-    },
-    handleTrackClick (idx) {
-      this.handleTrackHover(idx)
-    },
     toggleTrackPlayback () {
       if (!this.trackPoints.length) return
       if (this.isTrackPlaying) {
@@ -849,6 +856,43 @@ export default {
         series
       }, true)
     },
+    handleSelectionChange (rows) {
+      this.selectedDevices = Array.isArray(rows) ? rows : []
+    },
+    async exportSelected () {
+      if (!this.selectedDevices.length) {
+        this.$message.warning('请先选择要导出的设备')
+        return
+      }
+      const deviceIds = this.selectedDevices.map(item => String(item.device_id || item.devid || '').trim()).filter(Boolean)
+      if (!deviceIds.length) {
+        this.$message.warning('选中数据缺少设备ID')
+        return
+      }
+      this.exporting = true
+      try {
+        const res = await this.$axios.post('/device/export/', { device_ids: deviceIds }, {
+          responseType: 'blob',
+          timeout: 120000
+        })
+        const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const ts = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')
+        a.download = `设备导出_${ts}.xlsx`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+        this.$message.success(`已导出 ${deviceIds.length} 台设备数据`)
+      } catch (e) {
+        console.error('[exportSelected] 导出失败', e)
+        this.$message.error('导出失败，请稍后重试')
+      } finally {
+        this.exporting = false
+      }
+    },
     async getTableData () {
       this.tableLoading = true
       try {
@@ -864,6 +908,10 @@ export default {
         if (res.code === 200) {
           this.tableData = res.data.device_list
           this.total = res.data.total
+          this.selectedDevices = []
+          this.$nextTick(() => {
+            if (this.$refs.deviceTableRef) this.$refs.deviceTableRef.clearSelection()
+          })
         } else {
           this.$message.error(res.msg || '获取列表失败')
         }
@@ -970,11 +1018,11 @@ export default {
     getChartFetchSize () {
       switch (this.trendRangeType) {
         case '1d': return 300
-        case '7d': return 1200
-        case '30d': return 4000
-        case '1y': return 12000
-        case 'custom': return 6000
-        default: return 4000
+        case '7d': return 1000
+        case '30d': return 1000
+        case '1y': return 1000
+        case 'custom': return 1000
+        default: return 1000
       }
     },
     async loadTrendData () {
@@ -982,6 +1030,7 @@ export default {
       const { startDate, endDate } = this.getTrendDateParams()
 
       const { data: res } = await this.$axios.get('/device/data/trend/', {
+        timeout: 45000,
         params: {
           device_id: this.currentDevice.device_id,
           range_type: this.trendRangeType,
@@ -1042,7 +1091,16 @@ export default {
 .filter-card { margin-bottom: 12px; }
 .table-card { margin-bottom: 14px; }
 .toolbar { margin-bottom: 0; display: flex; align-items: center; }
-.toolbar-buttons { display: flex; justify-content: flex-end; gap: 10px; }
+.toolbar-buttons { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.selected-tip {
+  font-size: 12px;
+  color: #64748b;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+.selected-tip b { color: #2563eb; }
 .device-table ::v-deep th { background: #f8fafc; color: #334155; font-weight: 600; }
 .device-table ::v-deep td { background: #fff; color: #1f2937; }
 .device-table ::v-deep tr:hover td { background: #f8fbff; }

@@ -49,6 +49,12 @@ router.beforeEach((to, from, next) => {
   if (to.path === LOGIN_PATH) return next()
   const token = window.sessionStorage.getItem(TOKEN_KEY)
   if (!token) return next(LOGIN_PATH)
+
+  const userType = Number(window.sessionStorage.getItem('user_type') || 0)
+  if (to.path === '/user_list' && userType !== 1) {
+    return next('/device_list')
+  }
+
   next()
 })
 

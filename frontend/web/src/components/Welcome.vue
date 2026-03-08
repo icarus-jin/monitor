@@ -1,26 +1,33 @@
 <template>
-  <div class="welcome-page">
+  <div ref="welcomeRoot" class="welcome-page" :class="{ 'welcome-page-fullscreen': isFullscreen }">
     <div id="mars3dContainer" class="map-container" :class="{ 'map-container-hidden': isSwitchingScene }"></div>
     <div v-if="map3dLoading" class="loading-overlay">{{ loadingText }}</div>
 
     <div class="map-legend">
-      <div class="legend-total">
-        <div class="legend-total-label">设备总数</div>
-        <div class="legend-total-value">{{ deviceStats.total }}</div>
-      </div>
-      <div class="legend-status-row">
-        <span class="status-dot online"></span>
-        <span>在线 {{ deviceStats.online }}</span>
-      </div>
-      <div class="legend-status-row">
-        <span class="status-dot offline"></span>
-        <span>离线 {{ deviceStats.offline }}</span>
+      <div v-for="item in legendStats" :key="item.key" class="legend-block">
+        <div class="legend-inline-row">
+          <span class="legend-total-label">{{ item.label }}</span>
+          <span class="legend-total-value">{{ item.total }}</span>
+          <span class="legend-inline-status">
+            <span class="status-dot online"></span>在线{{ item.online }}
+          </span>
+          <span class="legend-inline-status legend-inline-status-offline">
+            <span class="status-dot offline"></span>离线{{ item.offline }}
+          </span>
+        </div>
       </div>
 
       <div class="scene-tools">
         <span class="scene-tools-label"></span>
         <button class="scene-btn" :class="{ active: currentSceneMode === '3D' }" :disabled="isSwitchingScene" @click="switchSceneMode('3D')">3D</button>
         <button class="scene-btn" :class="{ active: currentSceneMode === '2D' }" :disabled="isSwitchingScene" @click="switchSceneMode('2D')">2D</button>
+        <button
+          class="scene-btn fullscreen-btn"
+          :title="isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'"
+          @click="toggleFullscreen"
+        >
+          <span :class="['fullscreen-icon', isFullscreen ? 'is-exit' : 'is-enter']"></span>
+        </button>
       </div>
     </div>
 
@@ -29,7 +36,9 @@
       :append-to-body="true"
       :show-close="false"
       :fullscreen="true"
+      :destroy-on-close="true"
       custom-class="device-detail-embed-dialog"
+      @closed="handleDetailDialogClosed"
     >
       <button class="floating-close-btn" @click="deviceCardVisible = false">×</button>
       <iframe
@@ -55,15 +64,27 @@ const DEFAULT_SCENE_CENTER = (scenePreset && scenePreset.scene && scenePreset.sc
 
 export default {
   name: 'Welcome',
+  computed: {
+    legendStats () {
+      return [
+        { key: 'total', label: '设备总数', ...this.deviceStats.total },
+        { key: 'north', label: '北极设备数量', ...this.deviceStats.north },
+        { key: 'south', label: '南极设备数量', ...this.deviceStats.south },
+        { key: 'domestic', label: '国内设备数量', ...this.deviceStats.domestic }
+      ]
+    }
+  },
   data () {
     return {
       map3dLoading: true,
       map: null,
       deviceEntities: [],
+      deviceEntityMap: new Map(),
       deviceStats: {
-        total: 0,
-        online: 0,
-        offline: 0
+        total: { total: 0, online: 0, offline: 0 },
+        domestic: { total: 0, online: 0, offline: 0 },
+        south: { total: 0, online: 0, offline: 0 },
+        north: { total: 0, online: 0, offline: 0 }
       },
       markerImage: locationIcon,
       currentSceneMode: '3D',
@@ -74,15 +95,21 @@ export default {
       mapClickHandler: null,
       deviceCardVisible: false,
       detailFrameUrl: '',
-      loadingText: '地图加载中...'
+      loadingText: '地图加载中...',
+      mapPointsReqSeq: 0,
+      mapPointsRefreshTimer: null,
+      lastMapClickTs: 0,
+      isFullscreen: false
     }
   },
   mounted () {
     this.$nextTick(() => {
       this.initMap3D()
     })
+    document.addEventListener('fullscreenchange', this.handleFullscreenChange)
   },
   beforeDestroy () {
+    document.removeEventListener('fullscreenchange', this.handleFullscreenChange)
     if (this.pendingRenderTimer) {
       clearTimeout(this.pendingRenderTimer)
       this.pendingRenderTimer = null
@@ -90,6 +117,10 @@ export default {
     if (this.scaleTuneTimer) {
       clearInterval(this.scaleTuneTimer)
       this.scaleTuneTimer = null
+    }
+    if (this.mapPointsRefreshTimer) {
+      clearInterval(this.mapPointsRefreshTimer)
+      this.mapPointsRefreshTimer = null
     }
     this.clearDeviceEntities()
     if (this.mapClickHandler && this.map && this.map.viewer) {
@@ -102,6 +133,31 @@ export default {
     }
   },
   methods: {
+    async toggleFullscreen () {
+      const root = this.$refs.welcomeRoot
+      if (!root) return
+      try {
+        if (!document.fullscreenElement) {
+          if (root.requestFullscreen) await root.requestFullscreen()
+          this.isFullscreen = true
+        } else {
+          if (document.exitFullscreen) await document.exitFullscreen()
+          this.isFullscreen = false
+        }
+      } catch (e) {
+        this.$message.warning('全屏切换失败，请检查浏览器权限')
+      } finally {
+        this.$nextTick(() => {
+          if (this.map && this.map.viewer) this.map.viewer.resize()
+        })
+      }
+    },
+    handleFullscreenChange () {
+      this.isFullscreen = Boolean(document.fullscreenElement)
+      this.$nextTick(() => {
+        if (this.map && this.map.viewer) this.map.viewer.resize()
+      })
+    },
     bindMapDeviceClick () {
       if (!this.map || !this.map.viewer) return
       const Cesium = mars3d.Cesium
@@ -111,17 +167,29 @@ export default {
       }
       this.mapClickHandler = new Cesium.ScreenSpaceEventHandler(this.map.viewer.scene.canvas)
       this.mapClickHandler.setInputAction((movement) => {
+        const now = Date.now()
+        if (now - this.lastMapClickTs < 150) return
+        this.lastMapClickTs = now
         const picked = this.map.viewer.scene.pick(movement.position)
         if (!picked) return
         const entity = picked.id
         const pid = entity && entity.properties && entity.properties.device_id
         const deviceId = pid && typeof pid.getValue === 'function' ? pid.getValue() : ''
         if (!deviceId) return
-        const did = String(deviceId).trim()
-        const base = `${window.location.origin}${window.location.pathname}`
-        this.detailFrameUrl = `${base}#/device_list?device_id=${encodeURIComponent(did)}&embed=1&_t=${Date.now()}`
-        this.deviceCardVisible = true
+        this.openDeviceDetailById(deviceId)
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+    },
+    openDeviceDetailById (deviceId) {
+      const did = String(deviceId || '').trim()
+      if (!did) return
+      const base = `${window.location.origin}${window.location.pathname}`
+      const nextUrl = `${base}#/device_list?device_id=${encodeURIComponent(did)}&embed=1&_t=${Date.now()}`
+      if (this.detailFrameUrl === nextUrl && this.deviceCardVisible) return
+      this.detailFrameUrl = nextUrl
+      this.deviceCardVisible = true
+    },
+    handleDetailDialogClosed () {
+      this.detailFrameUrl = ''
     },
     initMap3D () {
       try {
@@ -193,6 +261,7 @@ export default {
           this.currentSceneMode = this.map.viewer.scene.mode === mars3d.Cesium.SceneMode.SCENE2D ? '2D' : '3D'
           this.applySceneModeVisuals(this.currentSceneMode)
           await this.loadAndRenderDevices()
+          this.startMapPointsRefresh()
           // 首次进入首页默认将比例尺校准到1000公里
           this.tuneScaleAfterSwitch(this.currentSceneMode, () => {
             this.map3dLoading = false
@@ -257,7 +326,7 @@ export default {
 
         this.pendingRenderTimer = setTimeout(() => {
           this.currentSceneMode = mode
-          this.renderDevices(this.latestDeviceList)
+          this.renderDevices(this.latestDeviceList, { forceRebuild: true })
           this.tuneScaleAfterSwitch(mode, () => {
             this.isSwitchingScene = false
             this.map3dLoading = false
@@ -359,14 +428,24 @@ export default {
       viewer.scene.screenSpaceCameraController.minimumZoomDistance = is2D ? 10000 : 100
     },
 
-    async loadAndRenderDevices () {
+    startMapPointsRefresh () {
+      if (this.mapPointsRefreshTimer) return
+      this.mapPointsRefreshTimer = setInterval(() => {
+        this.loadAndRenderDevices({ silent: true })
+      }, 20000)
+    },
+    async loadAndRenderDevices (options = {}) {
+      const { silent = false } = options
+      const reqSeq = ++this.mapPointsReqSeq
       try {
         const { data: res } = await this.$axios.get('/device/map/points/', {
           timeout: 15000
         })
 
+        if (reqSeq !== this.mapPointsReqSeq) return
+
         if (res.code !== 200) {
-          this.$message.warning(res.msg || '设备数据加载失败')
+          if (!silent) this.$message.warning(res.msg || '设备数据加载失败')
           return
         }
 
@@ -374,15 +453,110 @@ export default {
         this.latestDeviceList = list
         this.renderDevices(list)
       } catch (error) {
+        if (reqSeq !== this.mapPointsReqSeq) return
         console.error('[welcome] 设备上图失败', error)
-        this.$message.warning('设备数据加载失败')
+        if (!silent) this.$message.warning('设备数据加载失败')
       }
     },
 
-    renderDevices (deviceList) {
-      if (!this.map || !this.map.viewer) return
+    createDeviceEntity (device, index) {
+      if (!this.map || !this.map.viewer) return null
       const Cesium = mars3d.Cesium
-      this.clearDeviceEntities()
+      const lat = Number(device.latitude)
+      const lng = Number(device.longitude)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+
+      const is2D = this.currentSceneMode === '2D'
+      const entityId = `device-${String(device.device_id).trim()}`
+      return this.map.viewer.entities.add({
+        id: entityId,
+        position: Cesium.Cartesian3.fromDegrees(lng, lat, is2D ? 0 : MARKER_HEIGHT),
+        billboard: {
+          image: this.markerImage,
+          width: 30,
+          height: 30,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          scaleByDistance: new Cesium.NearFarScalar(8.0e5, 1.2, 2.5e7, 0.45),
+          translucencyByDistance: new Cesium.NearFarScalar(1.0e6, 1.0, 2.8e7, 0.25),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 3.2e7),
+          scale: is2D
+            ? 1.0
+            : new Cesium.CallbackProperty(() => {
+              const now = Date.now() * 0.0032
+              return 1.0 + Math.sin(now + index * 0.9) * 0.12
+            }, false)
+        },
+        label: {
+          text: device.device_name || device.device_id,
+          font: is2D ? '13px sans-serif' : '12px sans-serif',
+          fillColor: Cesium.Color.fromCssColorString('#fee2e2'),
+          outlineColor: Cesium.Color.fromCssColorString('#7f1d1d'),
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, is2D ? -20 : -30),
+          scaleByDistance: new Cesium.NearFarScalar(1.0e6, 1.0, 2.2e7, 0.35),
+          translucencyByDistance: new Cesium.NearFarScalar(1.0e6, 1.0, 2.4e7, 0.1),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 2.6e7)
+        },
+        ...(is2D
+          ? {}
+          : {
+              polyline: {
+                positions: [
+                  Cesium.Cartesian3.fromDegrees(lng, lat, 0),
+                  Cesium.Cartesian3.fromDegrees(lng, lat, MARKER_HEIGHT)
+                ],
+                width: 1,
+                material: Cesium.Color.fromCssColorString('#f87171'),
+                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 2.2e7)
+              }
+            }),
+        properties: {
+          is_cluster: false,
+          device_id: device.device_id,
+          device_name: device.device_name,
+          device_type: device.device_type,
+          status_name: device.status_name,
+          ownership: device.ownership,
+          packet_time: device.latest_packet_time || '',
+          last_report_time: device.last_report_time
+        }
+      })
+    },
+    clusterDevices (devices) {
+      return devices.map((d) => ({
+        type: 'single',
+        device: d,
+        id: `device-${String(d.device_id || '').trim()}`
+      }))
+    },
+    countByPrefix (devices, prefix) {
+      const matched = devices.filter(d => {
+        const did = String(d.device_id || d.devid || '').trim()
+        return did.startsWith(prefix)
+      })
+      const online = matched.filter(d => Number(d.status) === 1).length
+      return {
+        total: matched.length,
+        online,
+        offline: matched.length - online
+      }
+    },
+    updateDeviceStats (devices) {
+      const allOnline = devices.filter(d => Number(d.status) === 1).length
+      this.deviceStats.total = {
+        total: devices.length,
+        online: allOnline,
+        offline: devices.length - allOnline
+      }
+      this.deviceStats.domestic = this.countByPrefix(devices, '01')
+      this.deviceStats.south = this.countByPrefix(devices, '02')
+      this.deviceStats.north = this.countByPrefix(devices, '03')
+    },
+    renderDevices (deviceList, options = {}) {
+      if (!this.map || !this.map.viewer) return
+      const { forceRebuild = false } = options
 
       const deviceMap = new Map()
       deviceList.forEach((device) => {
@@ -399,82 +573,43 @@ export default {
       })
 
       const uniqueDevices = Array.from(deviceMap.values())
-      this.deviceStats.total = uniqueDevices.length
-      this.deviceStats.online = uniqueDevices.filter(d => Number(d.status) === 1).length
-      this.deviceStats.offline = this.deviceStats.total - this.deviceStats.online
+      this.updateDeviceStats(uniqueDevices)
 
-      uniqueDevices.forEach((device, index) => {
-        const lat = Number(device.latitude)
-        const lng = Number(device.longitude)
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+      if (forceRebuild) this.clearDeviceEntities()
 
-        const is2D = this.currentSceneMode === '2D'
-        const entityId = `device-${String(device.device_id).trim()}`
-        const existed = this.map.viewer.entities.getById(entityId)
-        if (existed) this.map.viewer.entities.remove(existed)
-
-        const entity = this.map.viewer.entities.add({
-          id: entityId,
-          position: Cesium.Cartesian3.fromDegrees(lng, lat, is2D ? 0 : MARKER_HEIGHT),
-          billboard: {
-            image: this.markerImage,
-            width: 30,
-            height: 30,
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            scaleByDistance: new Cesium.NearFarScalar(8.0e5, 1.2, 2.5e7, 0.45),
-            translucencyByDistance: new Cesium.NearFarScalar(1.0e6, 1.0, 2.8e7, 0.25),
-            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 3.2e7),
-            scale: is2D
-              ? 1.0
-              : new Cesium.CallbackProperty(() => {
-                const now = Date.now() * 0.0032
-                return 1.0 + Math.sin(now + index * 0.9) * 0.12
-              }, false)
-          },
-          label: {
-            text: device.device_name || device.device_id,
-            font: is2D ? '13px sans-serif' : '12px sans-serif',
-            fillColor: Cesium.Color.fromCssColorString('#fee2e2'),
-            outlineColor: Cesium.Color.fromCssColorString('#7f1d1d'),
-            outlineWidth: 2,
-            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            pixelOffset: new Cesium.Cartesian2(0, is2D ? -20 : -30),
-            scaleByDistance: new Cesium.NearFarScalar(1.0e6, 1.0, 2.2e7, 0.35),
-            translucencyByDistance: new Cesium.NearFarScalar(1.0e6, 1.0, 2.4e7, 0.1),
-            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 2.6e7)
-          },
-          ...(is2D
-            ? {}
-            : {
-                polyline: {
-                  positions: [
-                    Cesium.Cartesian3.fromDegrees(lng, lat, 0),
-                    Cesium.Cartesian3.fromDegrees(lng, lat, MARKER_HEIGHT)
-                  ],
-                  width: 1,
-                  material: Cesium.Color.fromCssColorString('#f87171'),
-                  distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 2.2e7)
-                }
-              }),
-          properties: {
-            device_id: device.device_id,
-            device_name: device.device_name,
-            device_type: device.device_type,
-            status_name: device.status_name,
-            ownership: device.ownership,
-            packet_time: device.latest_packet_time || '',
-            last_report_time: device.last_report_time
+      const renderUnits = this.clusterDevices(uniqueDevices)
+      const nextIds = new Set(renderUnits.map(item => item.id))
+      if (!forceRebuild) {
+        this.deviceEntities = this.deviceEntities.filter((entity) => {
+          if (!entity || !entity.id || !nextIds.has(entity.id)) {
+            if (entity) this.map.viewer.entities.remove(entity)
+            this.deviceEntityMap.delete(entity && entity.id)
+            return false
           }
+          return true
         })
+      }
 
-        this.deviceEntities.push(entity)
+      renderUnits.forEach((item, index) => {
+        const id = item.id
+        const oldEntity = forceRebuild ? null : this.deviceEntityMap.get(id)
+        if (oldEntity) {
+          this.map.viewer.entities.remove(oldEntity)
+          this.deviceEntityMap.delete(id)
+          this.deviceEntities = this.deviceEntities.filter(e => e && e.id !== id)
+        }
+
+        const created = this.createDeviceEntity(item.device, index)
+        if (!created) return
+        this.deviceEntityMap.set(id, created)
+        this.deviceEntities.push(created)
       })
     },
 
     clearDeviceEntities () {
       if (!this.map || !this.map.viewer || !this.deviceEntities.length) {
         this.deviceEntities = []
+        this.deviceEntityMap.clear()
         return
       }
 
@@ -482,6 +617,7 @@ export default {
         this.map.viewer.entities.remove(entity)
       })
       this.deviceEntities = []
+      this.deviceEntityMap.clear()
     }
   }
 }
@@ -495,6 +631,16 @@ export default {
   border-radius: 14px;
   overflow: hidden;
   background: #000;
+}
+
+.welcome-page-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  border-radius: 0;
+  z-index: 3000;
 }
 
 .map-container {
@@ -531,12 +677,12 @@ export default {
   backdrop-filter: none;
 }
 
-.legend-total {
-  margin: 0 0 10px 0;
+.legend-inline-row {
   display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 8px;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
 }
 
@@ -546,20 +692,24 @@ export default {
 }
 
 .legend-total-value {
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
   font-weight: 800;
   color: #ffffff;
+  min-width: 32px;
 }
 
-.legend-status-row {
-  display: flex;
+.legend-inline-status {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 4px;
   font-size: 12px;
   color: #e5e7eb;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.legend-inline-status-offline {
+  font-size: 11px;
+  opacity: 0.95;
 }
 
 .status-dot {
@@ -611,6 +761,63 @@ export default {
   color: #fff;
   border-color: #ef4444;
   background: rgba(239, 68, 68, 0.4);
+}
+
+.fullscreen-btn {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fullscreen-icon {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+}
+
+.fullscreen-icon::before,
+.fullscreen-icon::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.fullscreen-icon.is-enter::before {
+  border-top: 2px solid #fecaca;
+  border-left: 2px solid #fecaca;
+  left: -2px;
+  top: -2px;
+}
+
+.fullscreen-icon.is-enter::after {
+  border-right: 2px solid #fecaca;
+  border-bottom: 2px solid #fecaca;
+  right: -2px;
+  bottom: -2px;
+}
+
+.fullscreen-icon.is-exit::before {
+  border-top: 2px solid #fecaca;
+  border-right: 2px solid #fecaca;
+  right: 2px;
+  top: 2px;
+  width: 8px;
+  height: 8px;
+}
+
+.fullscreen-icon.is-exit::after {
+  border-left: 2px solid #fecaca;
+  border-bottom: 2px solid #fecaca;
+  left: 2px;
+  bottom: 2px;
+  width: 8px;
+  height: 8px;
 }
 
 ::v-deep .device-detail-embed-dialog {

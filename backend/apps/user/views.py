@@ -36,6 +36,25 @@ def _normalize_str_list(value):
     return result
 
 
+def _get_active_user_by_id(uid):
+    return User.objects.using('default').filter(id=uid, is_delete=0).first()
+
+
+def _serialize_user(u):
+    normalized_devices = _normalize_str_list(u.device_list or [])
+    return {
+        'id': u.id,
+        'name': u.name,
+        'type': u.type,
+        'type_name': '超级管理员' if u.type == 1 else '客户',
+        'device_list': normalized_devices,
+        'device_count': len(normalized_devices),
+        'device_list_str': ','.join(normalized_devices),
+        'create_time': u.create_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'update_time': u.update_time.strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class LoginView(View):
     """登录"""
@@ -81,20 +100,7 @@ class UserListView(View):
             total = qs.count()
             paginator = Paginator(qs, page_size)
             page_obj = paginator.get_page(page)
-            user_list = []
-            for u in page_obj:
-                normalized_devices = _normalize_str_list(u.device_list or [])
-                user_list.append({
-                    'id': u.id,
-                    'name': u.name,
-                    'type': u.type,
-                    'type_name': '超级管理员' if u.type == 1 else '客户',
-                    'device_list': normalized_devices,
-                    'device_count': len(normalized_devices),
-                    'device_list_str': ','.join(normalized_devices),
-                    'create_time': u.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'update_time': u.update_time.strftime('%Y-%m-%d %H:%M:%S')
-                })
+            user_list = [_serialize_user(u) for u in page_obj]
             return success(data={'user_list': user_list, 'total': total})
         except Exception as e:
             logger.exception('用户列表异常: %s', e)
@@ -137,7 +143,7 @@ class UserDetailView(View):
             uid = get_param(body, 'id') or body.get('id')
             if not uid:
                 return error('用户ID不能为空', code=400)
-            user = User.objects.using('default').filter(id=uid, is_delete=0).first()
+            user = _get_active_user_by_id(uid)
             if not user:
                 return error('用户不存在', code=404)
             user_type = get_param(body, 'type') or body.get('type')
@@ -159,7 +165,7 @@ class UserDetailView(View):
             uid = request.GET.get('id') or get_param(parse_body(request), 'id') or request.POST.get('id')
             if not uid:
                 return error('用户ID不能为空', code=400)
-            user = User.objects.using('default').filter(id=uid, is_delete=0).first()
+            user = _get_active_user_by_id(uid)
             if not user:
                 return error('用户不存在', code=404)
             user.is_delete = 1
@@ -200,7 +206,7 @@ class ResetPasswordView(View):
                 return error('用户ID不能为空', code=400)
             if not new_pwd or len(new_pwd) < 6:
                 return error('新密码不能少于6位', code=400)
-            user = User.objects.using('default').filter(id=uid, is_delete=0).first()
+            user = _get_active_user_by_id(uid)
             if not user:
                 return error('用户不存在', code=404)
             user.password = make_password(new_pwd)

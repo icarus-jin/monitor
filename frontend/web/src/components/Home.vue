@@ -2,7 +2,7 @@
   <el-container class="home-container">
     <el-header class="header">
       <div class="header-left">
-        <img src="../assets/logo.png" class="logo" />
+        <img :src="logoUrl" class="logo" />
         <div>
           <div class="title">气象监测管理系统</div>
           <div class="subtitle">设备数据可视化平台</div>
@@ -51,12 +51,19 @@
 
 <script>
 /* eslint vue/multi-word-component-names: "off" */
+import logoImage from '../assets/logo.png'
+
 export default {
   name: 'Home',
   created () { this.getMenuList() },
+  mounted () {
+    this.applyFaviconFromLogo()
+  },
   data () {
     return {
+      logoUrl: logoImage,
       username: window.sessionStorage.getItem('username'),
+      userType: Number(window.sessionStorage.getItem('user_type') || 0),
       isCollapse: true,
       menuList: [],
       iconMap: {
@@ -72,16 +79,31 @@ export default {
     asideWidth () { return this.isCollapse ? '72px' : '220px' }
   },
   methods: {
+    applyFaviconFromLogo () {
+      if (!this.logoUrl) return
+      let iconLink = document.querySelector("link[rel='icon']")
+      if (!iconLink) {
+        iconLink = document.createElement('link')
+        iconLink.setAttribute('rel', 'icon')
+        document.head.appendChild(iconLink)
+      }
+      iconLink.setAttribute('type', 'image/png')
+      iconLink.setAttribute('href', this.logoUrl)
+    },
     getMenuList () {
-      this.menuList = [
-        { id: 2, name: '用户管理', children: [{ id: 21, name: '用户列表', path: '/user_list' }] },
+      const baseMenus = [
         { id: 3, name: '设备管理', children: [{ id: 31, name: '设备列表', path: '/device_list' }] }
       ]
+      if (this.userType === 1) {
+        baseMenus.unshift({ id: 2, name: '用户管理', children: [{ id: 21, name: '用户列表', path: '/user_list' }] })
+      }
+      this.menuList = baseMenus
     },
     getIcon (id) { return this.iconMap[id] || 'el-icon-menu' },
     logout () {
       window.sessionStorage.removeItem('token')
       window.sessionStorage.removeItem('username')
+      window.sessionStorage.removeItem('user_type')
       this.$router.push('/login')
       this.$message.success('已退出登录')
     }

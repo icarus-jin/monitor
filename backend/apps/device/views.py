@@ -5,6 +5,7 @@
 - 设备/业务数据：jdhydevicedb 原始库
 """
 from datetime import datetime
+import json
 import time
 from pathlib import Path
 from threading import Lock, Event
@@ -16,6 +17,8 @@ from django.utils.decorators import method_decorator
 from django.core.paginator import Paginator
 from django.utils import timezone
 from django.http import HttpResponse
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 import random
 import requests
@@ -62,6 +65,35 @@ def _get_current_user(request):
     if not user_id:
         return None
     return User.objects.using(RAW_DB).filter(id=user_id, is_delete=0).first()
+
+
+def _require_user(request):
+    user = _get_current_user(request)
+    if not user:
+        return None, error('登录状态已失效，请重新登录', code=10016)
+    return user, None
+
+
+def _user_can_access_device(user, device_id):
+    if not user or not device_id:
+        return False
+    return user.type == 1 or device_id in (user.device_list or [])
+
+
+def _get_int_query(request, key, default):
+    return int(request.GET.get(key, default))
+
+
+def _clamp(value, min_value, max_value):
+    return max(min_value, min(max_value, value))
+
+
+def _parse_json_body(request):
+    try:
+        body = (request.body or b'').decode('utf-8')
+        return json.loads(body) if body else {}
+    except Exception:
+        return {}
 
 
 def _normalize_lat_lon(lat, lon, latflag, lonflag):
@@ -477,12 +509,12 @@ def _map_points_cache_set(cache_key, data):
 class DeviceListView(View):
     def get(self, request):
         try:
-            user = _get_current_user(request)
-            if not user:
-                return error('登录状态已失效，请重新登录', code=10016)
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
 
-            page = int(request.GET.get('page', 1))
-            page_size = int(request.GET.get('page_size', 10))
+            page = _get_int_query(request, 'page', 1)
+            page_size = _get_int_query(request, 'page_size', 10)
             keyword = (request.GET.get('keyword') or '').strip()
             ownership = (request.GET.get('ownership') or '').strip()
             status_filter = request.GET.get('status')
@@ -574,9 +606,9 @@ class DeviceListView(View):
 class DeviceSimpleListView(View):
     def get(self, request):
         try:
-            user = _get_current_user(request)
-            if not user:
-                return error('登录状态已失效，请重新登录', code=10016)
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
 
             keyword = (request.GET.get('keyword') or '').strip()
             sql = "SELECT id, devid, name, ownership FROM `device_list` WHERE 1=1"
@@ -617,9 +649,9 @@ class DeviceMapPointsView(View):
     """首页地图设备点位（一次返回，使用最新有效经纬度）。"""
     def get(self, request):
         try:
-            user = _get_current_user(request)
-            if not user:
-                return error('登录状态已失效，请重新登录', code=10016)
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
 
             cache_key = _map_points_cache_key(user)
             cached = _map_points_cache_get(cache_key)
@@ -717,14 +749,14 @@ class DeviceDataIngestView(View):
 class DeviceDataLatestView(View):
     def get(self, request):
         try:
-            user = _get_current_user(request)
-            if not user:
-                return error('登录状态已失效，请重新登录', code=10016)
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
 
             device_id = (request.GET.get('device_id') or '').strip()
             if not device_id:
                 return error('device_id不能为空', code=400)
-            if user.type != 1 and device_id not in (user.device_list or []):
+            if not _user_can_access_device(user, device_id):
                 return error('设备不存在或无权限', code=404)
 
             source_table, latest_row = _get_latest_row_for_device(device_id)
@@ -757,20 +789,20 @@ class DeviceDataLatestView(View):
 class DeviceTrendView(View):
     def get(self, request):
         try:
-            user = _get_current_user(request)
-            if not user:
-                return error('登录状态已失效，请重新登录', code=10016)
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
 
             device_id = (request.GET.get('device_id') or '').strip()
             range_type = (request.GET.get('range_type') or 'year').strip()
             start_date = (request.GET.get('start_date') or '').strip()
             end_date = (request.GET.get('end_date') or '').strip()
-            page = int(request.GET.get('page', 1))
-            page_size = int(request.GET.get('page_size', 100))
+            page = _clamp(_get_int_query(request, 'page', 1), 1, 1000000)
+            page_size = _clamp(_get_int_query(request, 'page_size', 100), 1, 1000)
 
             if not device_id:
                 return error('device_id不能为空', code=400)
-            if user.type != 1 and device_id not in (user.device_list or []):
+            if not _user_can_access_device(user, device_id):
                 return error('设备不存在或无权限', code=404)
 
             if range_type == '24h':
@@ -837,17 +869,17 @@ class DeviceTrendView(View):
 class DeviceTrackView(View):
     def get(self, request):
         try:
-            user = _get_current_user(request)
-            if not user:
-                return error('登录状态已失效，请重新登录', code=10016)
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
 
             device_id = (request.GET.get('device_id') or '').strip()
-            limit = int(request.GET.get('limit', 600))
+            limit = _get_int_query(request, 'limit', 600)
             start_date = (request.GET.get('start_date') or '').strip()
             end_date = (request.GET.get('end_date') or '').strip()
             if not device_id:
                 return error('device_id不能为空', code=400)
-            if user.type != 1 and device_id not in (user.device_list or []):
+            if not _user_can_access_device(user, device_id):
                 return error('设备不存在或无权限', code=404)
 
             source_table = _table_by_device_id(device_id)
@@ -902,9 +934,9 @@ class DeviceTrackView(View):
 class DeviceOverviewView(View):
     def get(self, request):
         try:
-            user = _get_current_user(request)
-            if not user:
-                return error('登录状态已失效，请重新登录', code=10016)
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
 
             sql = "SELECT devid, ownership FROM `device_list`"
             params = []
@@ -994,6 +1026,136 @@ class DeviceOverviewView(View):
             })
         except Exception as e:
             logger.exception('概览数据异常: %s', e)
+            return error(str(e), code=500)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DeviceExportView(View):
+    def post(self, request):
+        try:
+            user, auth_err = _require_user(request)
+            if auth_err:
+                return auth_err
+
+            body = _parse_json_body(request)
+            raw_ids = body.get('device_ids') if isinstance(body, dict) else None
+            if not isinstance(raw_ids, list) or not raw_ids:
+                return error('device_ids不能为空', code=400)
+
+            device_ids = []
+            seen = set()
+            for item in raw_ids:
+                did = str(item or '').strip()
+                if not did or did in seen:
+                    continue
+                if user.type != 1 and did not in (user.device_list or []):
+                    continue
+                seen.add(did)
+                device_ids.append(did)
+
+            if not device_ids:
+                return error('无可导出设备或无权限', code=400)
+
+            placeholders = ','.join(['%s'] * len(device_ids))
+            sql = f"""
+            SELECT id, name, devid, iridiumid, sensorflag, latflag, lat, lonflag, lon, workstate, display, ownership
+            FROM `device_list`
+            WHERE devid IN ({placeholders})
+            ORDER BY devid ASC
+            """
+            with connections[RAW_DB].cursor() as cursor:
+                cursor.execute(sql, device_ids)
+                rows = cursor.fetchall()
+
+            latest_map = _get_latest_time_map(device_ids)
+
+            wb = Workbook()
+            ws_main = wb.active
+            ws_main.title = '主数据'
+            ws_main.append([
+                '序号', '设备名称', '设备ID', '铱星号', '传感器标志位',
+                '纬度', '经度', '工作状态', '同步标志位', '归属单位', '在线状态', '最后上报时间'
+            ])
+
+            ws_detail = wb.create_sheet('明细数据')
+
+            detail_fields = []
+            detail_labels = {}
+            detail_rows = []
+
+            for row in rows:
+                raw_id, name, devid, iridiumid, sensorflag, latflag, lat, lonflag, lon, workstate, display_flag, own = row
+                nlat, nlon = _normalize_lat_lon(lat, lon, latflag, lonflag)
+                latest_time = latest_map.get(devid)
+                status_name = '在线' if _is_online_time(latest_time) else '离线'
+
+                ws_main.append([
+                    int(raw_id) if raw_id is not None else '',
+                    name or '',
+                    devid or '',
+                    iridiumid or '',
+                    sensorflag or '',
+                    nlat,
+                    nlon,
+                    int(workstate) if workstate is not None else '',
+                    int(display_flag) if display_flag is not None else '',
+                    own or '',
+                    status_name,
+                    _fmt_dt(latest_time)
+                ])
+
+                source_table, latest_row = _get_latest_row_for_device(devid)
+                detail_item = {
+                    '设备ID': devid or '',
+                    '设备名称': name or '',
+                    '数据源表': source_table or ''
+                }
+
+                if source_table and latest_row:
+                    comment_map = _get_comment_map(source_table)
+                    for field, value in latest_row.items():
+                        if field in ['id', 'devid']:
+                            continue
+                        show_value = _fmt_dt(value) if field == 'time' else value
+                        detail_item[field] = '' if show_value is None else str(show_value)
+                        if field not in detail_fields:
+                            detail_fields.append(field)
+                        detail_labels[field] = _field_label(field, comment_map)
+
+                detail_rows.append(detail_item)
+
+            detail_headers = ['设备ID', '设备名称', '数据源表'] + [
+                f"{f}({detail_labels.get(f, f)})" for f in detail_fields
+            ]
+            ws_detail.append(detail_headers)
+            for item in detail_rows:
+                row_vals = [item.get('设备ID', ''), item.get('设备名称', ''), item.get('数据源表', '')]
+                row_vals.extend([item.get(f, '') for f in detail_fields])
+                ws_detail.append(row_vals)
+
+            # 设置列宽（按内容自适应，限制在合理区间）
+            for ws in [ws_main, ws_detail]:
+                max_col = ws.max_column or 0
+                max_row = ws.max_row or 0
+                for c in range(1, max_col + 1):
+                    max_len = 0
+                    for r in range(1, min(max_row, 300) + 1):
+                        v = ws.cell(row=r, column=c).value
+                        l = len(str(v)) if v is not None else 0
+                        if l > max_len:
+                            max_len = l
+                    width = min(60, max(10, max_len + 2))
+                    ws.column_dimensions[get_column_letter(c)].width = width
+
+            response = HttpResponse(
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            ts = datetime.now().strftime('%Y%m%d%H%M%S')
+            response['Content-Disposition'] = f'attachment; filename=device_export_{ts}.xlsx'
+            wb.save(response)
+            return response
+        except Exception as e:
+            logger.exception('设备导出异常: %s', e)
             return error(str(e), code=500)
 
 
@@ -1133,22 +1295,6 @@ class MapTileProxyView(View):
             logger.warning('写入瓦片磁盘缓存失败 %s: %s', tile_path, e)
             return False
 
-    @classmethod
-    def _acquire_inflight(cls, key):
-        with cls._cache_lock:
-            evt = cls._inflight.get(key)
-            if evt is None:
-                evt = Event()
-                cls._inflight[key] = evt
-                return evt, True
-            return evt, False
-
-    @classmethod
-    def _release_inflight(cls, key):
-        with cls._cache_lock:
-            evt = cls._inflight.pop(key, None)
-        if evt:
-            evt.set()
 
     @classmethod
     def _acquire_inflight(cls, key):
@@ -1192,18 +1338,36 @@ class MapTileProxyView(View):
 
         key = self._cache_key(x, y, z, style, lang)
 
+        request_etag = request.META.get('HTTP_IF_NONE_MATCH', '')
+
         cached = self._get_from_cache(key)
         if cached:
+            etag = f'W/"{key}:{len(cached["content"])}"'
+            if request_etag == etag:
+                response = HttpResponse(status=304)
+                response['Cache-Control'] = 'public, max-age=300'
+                response['ETag'] = etag
+                response['X-Map-Cache'] = 'memory-hit-304'
+                return response
             response = HttpResponse(cached['content'], content_type=cached['content_type'])
             response['Cache-Control'] = 'public, max-age=300'
+            response['ETag'] = etag
             response['X-Map-Cache'] = 'memory-hit'
             return response
 
         disk_cached = self._get_from_disk_cache(x, y, z, style, lang)
         if disk_cached:
             self._set_cache(key, disk_cached['content'], disk_cached['content_type'])
+            etag = f'W/"{key}:{len(disk_cached["content"])}"'
+            if request_etag == etag:
+                response = HttpResponse(status=304)
+                response['Cache-Control'] = 'public, max-age=300'
+                response['ETag'] = etag
+                response['X-Map-Cache'] = 'disk-hit-304'
+                return response
             response = HttpResponse(disk_cached['content'], content_type=disk_cached['content_type'])
             response['Cache-Control'] = 'public, max-age=300'
+            response['ETag'] = etag
             response['X-Map-Cache'] = 'disk-hit'
             return response
 
@@ -1212,16 +1376,32 @@ class MapTileProxyView(View):
             wait_evt.wait(timeout=8)
             cached_after_wait = self._get_from_cache(key)
             if cached_after_wait:
+                etag = f'W/"{key}:{len(cached_after_wait["content"])}"'
+                if request_etag == etag:
+                    response = HttpResponse(status=304)
+                    response['Cache-Control'] = 'public, max-age=300'
+                    response['ETag'] = etag
+                    response['X-Map-Cache'] = 'memory-hit-wait-304'
+                    return response
                 response = HttpResponse(cached_after_wait['content'], content_type=cached_after_wait['content_type'])
                 response['Cache-Control'] = 'public, max-age=300'
+                response['ETag'] = etag
                 response['X-Map-Cache'] = 'memory-hit-wait'
                 return response
 
             disk_cached_after_wait = self._get_from_disk_cache(x, y, z, style, lang)
             if disk_cached_after_wait:
                 self._set_cache(key, disk_cached_after_wait['content'], disk_cached_after_wait['content_type'])
+                etag = f'W/"{key}:{len(disk_cached_after_wait["content"])}"'
+                if request_etag == etag:
+                    response = HttpResponse(status=304)
+                    response['Cache-Control'] = 'public, max-age=300'
+                    response['ETag'] = etag
+                    response['X-Map-Cache'] = 'disk-hit-wait-304'
+                    return response
                 response = HttpResponse(disk_cached_after_wait['content'], content_type=disk_cached_after_wait['content_type'])
                 response['Cache-Control'] = 'public, max-age=300'
+                response['ETag'] = etag
                 response['X-Map-Cache'] = 'disk-hit-wait'
                 return response
 

@@ -68,6 +68,7 @@ export default {
 
             window.sessionStorage.setItem('token', res.data.token)
             window.sessionStorage.setItem('username', res.data.username)
+            window.sessionStorage.setItem('user_type', String(res.data.user_type || ''))
             this.$message.success(res.msg)
             this.$router.push('/home')
           })
