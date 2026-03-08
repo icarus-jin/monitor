@@ -1,8 +1,7 @@
 # Linux 部署文档（新服务器）
 
-> 适用项目：`monitor`（Django + Vue2 + Nginx）
-> 
-> 建议系统：Ubuntu 22.04 LTS
+适用项目：`monitor`（Django + Vue2 + MySQL + Nginx）  
+建议系统：`Ubuntu 22.04 LTS`
 
 ---
 
@@ -11,10 +10,10 @@
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo timedatectl set-timezone Asia/Shanghai
-sudo apt install -y git curl wget vim unzip build-essential
+sudo apt install -y git curl wget vim unzip build-essential ca-certificates
 ```
 
-创建运行用户（可选但推荐）：
+可选：创建部署用户（推荐）
 
 ```bash
 sudo useradd -m -s /bin/bash deploy
@@ -26,14 +25,16 @@ sudo usermod -aG sudo deploy
 
 ## 2. 安装运行环境
 
-### 2.1 Python 环境
+### 2.1 Python 与系统依赖
+
+> `mysqlclient` 依赖系统库，必须先装。
 
 ```bash
 sudo apt install -y python3 python3-pip python3-venv
 sudo apt install -y default-libmysqlclient-dev pkg-config
 ```
 
-### 2.2 Node.js 环境（前端构建）
+### 2.2 Node.js（前端打包）
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
@@ -52,35 +53,57 @@ sudo systemctl start nginx
 
 ---
 
-## 3. 上传/拉取项目代码
+## 3. 获取代码
 
 ```bash
 cd /home/deploy
 git clone <你的仓库地址> qixiangjiance
-cd qixiangjiance/monitor
+cd /home/deploy/qixiangjiance/monitor
 ```
 
 ---
 
 ## 4. 后端部署（Django）
 
-进入后端目录并创建虚拟环境：
-
 ```bash
 cd /home/deploy/qixiangjiance/monitor/backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+pip install gunicorn
 ```
 
-> 说明：当前 `requirements.txt` 同时有 Django 3.2 和 settings 头注释是 4.2 生成，建议你部署前统一版本（建议固定到 Django 3.2.25，保持与现有代码一致）。
+> 说明：`gunicorn` 不在当前 `requirements.txt` 中，需单独安装（如上）。
 
-### 4.1 修改数据库配置
+### 4.1 Python 依赖清单（来自 requirements.txt）
 
-当前 `api_server/settings.py` 写死了数据库地址与密码，建议改为环境变量方式（生产强烈建议）。
+当前核心依赖包括：
+- `Django==3.2.25`
+- `mysqlclient==2.2.7`
+- `PyMySQL==1.0.2`
+- `requests==2.32.5`
+- `openpyxl`（代码已使用；如环境缺失请执行 `pip install openpyxl`）
 
-### 4.2 启动 Gunicorn（临时测试）
+建议部署后确认：
+
+```bash
+python -c "import django,mysqlclient,requests; print('ok')" 2>/dev/null || true
+python -c "import openpyxl; print('openpyxl ok')"
+```
+
+### 4.2 配置数据库（必须）
+
+编辑：`/home/deploy/qixiangjiance/monitor/backend/api_server/settings.py`
+
+确认以下参数为你的生产环境配置：
+- `DATABASES.default.NAME`
+- `DATABASES.default.USER`
+- `DATABASES.default.PASSWORD`
+- `DATABASES.default.HOST`
+- `DATABASES.default.PORT`
+
+### 4.3 启动后端（临时验证）
 
 ```bash
 cd /home/deploy/qixiangjiance/monitor/backend
@@ -98,21 +121,20 @@ npm ci
 npm run build
 ```
 
-构建产物在：
-
+构建产物：
 - `/home/deploy/qixiangjiance/monitor/frontend/web/dist`
 
 ---
 
 ## 6. Nginx 配置（前后端同域）
 
-创建配置文件：
+新建配置：
 
 ```bash
 sudo vim /etc/nginx/sites-available/qixiangjiance.conf
 ```
 
-写入以下内容（按你的域名/路径调整）：
+写入：
 
 ```nginx
 server {
@@ -142,7 +164,7 @@ server {
 }
 ```
 
-启用配置：
+启用：
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/qixiangjiance.conf /etc/nginx/sites-enabled/
@@ -152,15 +174,15 @@ sudo systemctl reload nginx
 
 ---
 
-## 7. systemd 托管 Django（推荐）
+## 7. systemd 托管后端（推荐）
 
-创建服务文件：
+创建服务：
 
 ```bash
 sudo vim /etc/systemd/system/qixiangjiance-backend.service
 ```
 
-内容如下：
+内容：
 
 ```ini
 [Unit]
@@ -180,7 +202,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-启动并设置开机自启：
+生效并启动：
 
 ```bash
 sudo systemctl daemon-reload
@@ -189,7 +211,7 @@ sudo systemctl start qixiangjiance-backend
 sudo systemctl status qixiangjiance-backend
 ```
 
-查看日志：
+日志：
 
 ```bash
 journalctl -u qixiangjiance-backend -f
@@ -197,7 +219,16 @@ journalctl -u qixiangjiance-backend -f
 
 ---
 
-## 8. 发布流程（后续更新）
+## 8. 数据库性能（建议立即执行）
+
+趋势/轨迹查询建议每张业务时序表有复合索引：
+- `(devid, time)`
+
+如未执行，请先补索引后再压测。
+
+---
+
+## 9. 更新发布流程
 
 ```bash
 cd /home/deploy/qixiangjiance
@@ -207,6 +238,7 @@ git pull
 cd monitor/backend
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install gunicorn
 sudo systemctl restart qixiangjiance-backend
 
 # 前端
@@ -218,28 +250,30 @@ sudo systemctl reload nginx
 
 ---
 
-## 9. 生产建议（务必执行）
+## 10. 生产环境检查清单
 
 1. `DEBUG=False`
-2. `ALLOWED_HOSTS` 仅保留实际域名/IP
-3. 数据库账号不要用 root，改专用最小权限账号
-4. 开启 HTTPS（可用 Certbot）
-5. 将密钥、数据库密码改为环境变量
-6. 定期备份数据库
+2. `ALLOWED_HOSTS` 仅保留真实域名/IP
+3. 数据库不要使用 root，改最小权限账号
+4. 开启 HTTPS（Certbot）
+5. 密钥/数据库密码改环境变量
+6. 配置数据库备份与日志轮转
 
 ---
 
-## 10. 常见排查
+## 11. 常见故障排查
 
-### 10.1 前端能打开但接口 502
-- 检查 Gunicorn 是否存活：`systemctl status qixiangjiance-backend`
-- 检查 Nginx 反代地址是否是 `127.0.0.1:5000`
+### 11.1 页面可开但接口 502
+- `systemctl status qixiangjiance-backend`
+- `journalctl -u qixiangjiance-backend -f`
+- 检查 Nginx `proxy_pass` 是否 `127.0.0.1:5000`
 
-### 10.2 接口超时
-- 增大 Gunicorn `--timeout`
-- 增大 Nginx `proxy_read_timeout`
-- 检查数据库慢查询与索引（重点：`devid,time` 复合索引）
+### 11.2 导出/趋势请求超时
+- 提高 gunicorn `--timeout`
+- 提高 Nginx `proxy_read_timeout`
+- 检查 `(devid,time)` 索引是否已生效
 
-### 10.3 静态资源 404
-- 检查 Nginx `root` 是否指向 `frontend/web/dist`
+### 11.3 静态资源 404
+- 检查 Nginx `root` 是否为 `frontend/web/dist`
 - 重新执行 `npm run build`
+- `sudo systemctl reload nginx`

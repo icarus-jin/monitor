@@ -1,7 +1,7 @@
 <template>
   <el-container class="home-container">
     <el-header class="header">
-      <div class="header-left">
+      <div class="header-left logo-link" @click="goHome">
         <img :src="logoUrl" class="logo" />
         <div>
           <div class="title">气象监测管理系统</div>
@@ -99,6 +99,11 @@ export default {
       }
       this.menuList = baseMenus
     },
+    goHome () {
+      if (this.$route.path !== '/home/welcome') {
+        this.$router.push('/home/welcome')
+      }
+    },
     getIcon (id) { return this.iconMap[id] || 'el-icon-menu' },
     logout () {
       window.sessionStorage.removeItem('token')
@@ -126,6 +131,7 @@ export default {
 }
 
 .header-left { display: flex; align-items: center; gap: 10px; }
+.logo-link { cursor: pointer; user-select: none; }
 .logo { height: 34px; }
 .title { font-size: 17px; font-weight: 700; color: #0f172a; line-height: 1; }
 .subtitle { font-size: 12px; color: #64748b; margin-top: 4px; }

@@ -13,7 +13,7 @@
             <el-input v-model="userForm.username" placeholder="用户名" prefix-icon="el-icon-user"></el-input>
           </el-form-item>
           <el-form-item prop="password">
-            <el-input v-model="userForm.password" placeholder="密码" prefix-icon="el-icon-lock" show-password></el-input>
+            <el-input v-model="userForm.password" placeholder="密码" prefix-icon="el-icon-lock" show-password @keyup.enter.native="login"></el-input>
           </el-form-item>
           <el-form-item>
             <el-row :gutter="10">
