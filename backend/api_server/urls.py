@@ -21,4 +21,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('user/', include('apps.user.urls')),
     path('device/', include('apps.device.urls')),
+    path('receive_log/', include('apps.receive_log.urls')),
 ]

@@ -54,7 +54,8 @@
 <script>
 /* eslint vue/multi-word-component-names: "off" */
 import * as mars3d from 'mars3d'
-import locationIcon from '../assets/location.png'
+import onlineIcon from '../assets/online.png'
+import offlineIcon from '../assets/offline.png'
 import { mapOptions as scenePreset } from '../utils/map'
 
 const MARKER_HEIGHT = 180000
@@ -86,7 +87,8 @@ export default {
         south: { total: 0, online: 0, offline: 0 },
         north: { total: 0, online: 0, offline: 0 }
       },
-      markerImage: locationIcon,
+      onlineMarkerImage: onlineIcon,
+      offlineMarkerImage: offlineIcon,
       currentSceneMode: '3D',
       latestDeviceList: [],
       isSwitchingScene: false,
@@ -468,11 +470,13 @@ export default {
 
       const is2D = this.currentSceneMode === '2D'
       const entityId = `device-${String(device.device_id).trim()}`
+      const isOnline = Number(device.status) === 1
+      const iconImage = isOnline ? this.onlineMarkerImage : this.offlineMarkerImage
       return this.map.viewer.entities.add({
         id: entityId,
         position: Cesium.Cartesian3.fromDegrees(lng, lat, is2D ? 0 : MARKER_HEIGHT),
         billboard: {
-          image: this.markerImage,
+          image: iconImage,
           width: 30,
           height: 30,
           verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
@@ -543,6 +547,21 @@ export default {
         offline: matched.length - online
       }
     },
+    resolveDeviceTimeMs (device) {
+      const raw = device && (device.last_report_time || device.time)
+      if (!raw) return null
+      const ts = new Date(raw).getTime()
+      return Number.isFinite(ts) ? ts : null
+    },
+    filterValidDevices (devices) {
+      const now = Date.now()
+      const fiveYearsMs = 5 * 365 * 24 * 60 * 60 * 1000
+      return devices.filter((device) => {
+        const ts = this.resolveDeviceTimeMs(device)
+        if (!ts) return true
+        return now - ts <= fiveYearsMs
+      })
+    },
     updateDeviceStats (devices) {
       const allOnline = devices.filter(d => Number(d.status) === 1).length
       this.deviceStats.total = {
@@ -573,11 +592,12 @@ export default {
       })
 
       const uniqueDevices = Array.from(deviceMap.values())
-      this.updateDeviceStats(uniqueDevices)
+      const filteredDevices = this.filterValidDevices(uniqueDevices)
+      this.updateDeviceStats(filteredDevices)
 
       if (forceRebuild) this.clearDeviceEntities()
 
-      const renderUnits = this.clusterDevices(uniqueDevices)
+      const renderUnits = this.clusterDevices(filteredDevices)
       const nextIds = new Set(renderUnits.map(item => item.id))
       if (!forceRebuild) {
         this.deviceEntities = this.deviceEntities.filter((entity) => {

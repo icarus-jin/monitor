@@ -32,6 +32,12 @@ const routes = [
         name: 'device_list',
         component: () => import('../components/device/DeviceInfo.vue'),
         meta: { title: '设备管理', icon: 'el-icon-s-platform' }
+      },
+      {
+        path: '/receive_log',
+        name: 'receive_log',
+        component: () => import('../components/data/Data.vue'),
+        meta: { title: '数据接收', icon: 'el-icon-s-platform' }
       }
     ]
   }

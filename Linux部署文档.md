@@ -5,12 +5,24 @@
 
 ---
 
+## 0. 资源需求（建议）
+
+- 最低：2 vCPU / 4 GB RAM / 40 GB SSD
+- 推荐：4 vCPU / 8 GB RAM / 80 GB SSD
+- 数据量大（长期存储/高并发）：8 vCPU / 16 GB RAM / 200 GB SSD
+
+其他：
+- 带宽建议 ≥ 5 Mbps
+- 需要放行端口：`80`（HTTP）、`443`（HTTPS 可选）、`5000`（后端内网）、TCP 接收端口（按配置）
+
+---
+
 ## 1. 服务器初始化
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo timedatectl set-timezone Asia/Shanghai
-sudo apt install -y git curl wget vim unzip build-essential ca-certificates
+sudo apt install -y curl wget vim unzip build-essential ca-certificates
 ```
 
 可选：创建部署用户（推荐）
@@ -53,11 +65,21 @@ sudo systemctl start nginx
 
 ---
 
-## 3. 获取代码
+## 3. 上传代码（本地包部署）
+
+将本地项目打包上传到服务器，例如：
+
+```bash
+# 在本地执行
+zip -r qixiangjiance.zip qixiangjiance
+scp qixiangjiance.zip deploy@<server>:/home/deploy/
+```
+
+在服务器解压：
 
 ```bash
 cd /home/deploy
-git clone <你的仓库地址> qixiangjiance
+unzip qixiangjiance.zip
 cd /home/deploy/qixiangjiance/monitor
 ```
 
@@ -228,21 +250,26 @@ journalctl -u qixiangjiance-backend -f
 
 ---
 
-## 9. 更新发布流程
+## 9. 更新发布流程（本地包更新）
 
 ```bash
-cd /home/deploy/qixiangjiance
-git pull
+# 在本地打包并上传
+zip -r qixiangjiance.zip qixiangjiance
+scp qixiangjiance.zip deploy@<server>:/home/deploy/
+
+# 在服务器解压覆盖
+cd /home/deploy
+unzip -o qixiangjiance.zip
 
 # 后端
-cd monitor/backend
+cd /home/deploy/qixiangjiance/monitor/backend
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install gunicorn
 sudo systemctl restart qixiangjiance-backend
 
 # 前端
-cd ../frontend/web
+cd /home/deploy/qixiangjiance/monitor/frontend/web
 npm ci
 npm run build
 sudo systemctl reload nginx

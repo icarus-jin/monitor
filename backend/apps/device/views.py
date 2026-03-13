@@ -264,7 +264,6 @@ FIELD_LABEL_MAP = {
     'stressdata': '海冰应力数据'
 }
 
-
 def _field_label(field, comment_map):
     return FIELD_LABEL_MAP.get(field, field)
 
@@ -1029,7 +1028,6 @@ class DeviceOverviewView(View):
             return error(str(e), code=500)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class DeviceExportView(View):
     def post(self, request):
         try:

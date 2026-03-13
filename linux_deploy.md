@@ -2,13 +2,29 @@
 
 适用项目：`monitor`（Django + Vue2 + Nginx）
 
+---
+
+## 0. 资源需求（建议）
+
+- 最低：2 vCPU / 4 GB RAM / 40 GB SSD
+- 推荐：4 vCPU / 8 GB RAM / 80 GB SSD
+- 数据量大（长期存储/高并发）：8 vCPU / 16 GB RAM / 200 GB SSD
+
+其他：
+- 带宽建议 ≥ 5 Mbps
+- 需要放行端口：`80`、`443`（可选）、`5000`（后端内网）、TCP 接收端口（按配置）
+
+---
+
 ## 1. 基础环境
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo timedatectl set-timezone Asia/Shanghai
-sudo apt install -y git curl wget vim unzip build-essential
+sudo apt install -y curl wget vim unzip build-essential
 ```
+
+---
 
 ## 2. 安装依赖
 
@@ -34,22 +50,32 @@ sudo systemctl enable nginx
 sudo systemctl start nginx
 ```
 
-## 3. 拉取代码
+---
+
+## 3. 上传代码（本地包部署）
 
 ```bash
-cd /home
-git clone <你的仓库地址> qixiangjiance
-cd qixiangjiance/monitor
+# 本地打包并上传
+zip -r qixiangjiance.zip qixiangjiance
+scp qixiangjiance.zip deploy@<server>:/home/deploy/
+
+# 服务器解压
+cd /home/deploy
+unzip qixiangjiance.zip
+cd /home/deploy/qixiangjiance/monitor
 ```
+
+---
 
 ## 4. 后端部署
 
 ```bash
-cd /home/qixiangjiance/monitor/backend
+cd /home/deploy/qixiangjiance/monitor/backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+pip install gunicorn
 ```
 
 启动（临时）：
@@ -58,15 +84,19 @@ pip install -r requirements.txt
 gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
 ```
 
+---
+
 ## 5. 前端部署
 
 ```bash
-cd /home/qixiangjiance/monitor/frontend/web
+cd /home/deploy/qixiangjiance/monitor/frontend/web
 npm ci
 npm run build
 ```
 
-前端静态目录：`/home/qixiangjiance/monitor/frontend/web/dist`
+前端静态目录：`/home/deploy/qixiangjiance/monitor/frontend/web/dist`
+
+---
 
 ## 6. Nginx 配置
 
@@ -79,7 +109,7 @@ server {
 
     client_max_body_size 50m;
 
-    root /home/qixiangjiance/monitor/frontend/web/dist;
+    root /home/deploy/qixiangjiance/monitor/frontend/web/dist;
     index index.html;
 
     location / {
@@ -107,6 +137,8 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+---
+
 ## 7. systemd 托管后端
 
 创建 `/etc/systemd/system/qixiangjiance-backend.service`：
@@ -117,11 +149,11 @@ Description=Qixiangjiance Django Backend
 After=network.target
 
 [Service]
-User=root
-Group=root
-WorkingDirectory=/home/qixiangjiance/monitor/backend
-Environment="PATH=/home/qixiangjiance/monitor/backend/.venv/bin"
-ExecStart=/home/qixiangjiance/monitor/backend/.venv/bin/gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
+User=deploy
+Group=deploy
+WorkingDirectory=/home/deploy/qixiangjiance/monitor/backend
+Environment="PATH=/home/deploy/qixiangjiance/monitor/backend/.venv/bin"
+ExecStart=/home/deploy/qixiangjiance/monitor/backend/.venv/bin/gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
 Restart=always
 RestartSec=5
 
@@ -144,6 +176,8 @@ sudo systemctl status qixiangjiance-backend
 journalctl -u qixiangjiance-backend -f
 ```
 
+---
+
 ## 8. 索引建议（趋势/轨迹）
 
-核心建议：每个业务时序表建 `(devid, time)` 复合索引。
+每个业务时序表建议建 `(devid, time)` 复合索引。
