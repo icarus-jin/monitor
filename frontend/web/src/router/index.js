@@ -38,6 +38,12 @@ const routes = [
         name: 'receive_log',
         component: () => import('../components/data/Data.vue'),
         meta: { title: '数据接收', icon: 'el-icon-s-platform' }
+      },
+      {
+        path: '/email_manage',
+        name: 'email_manage',
+        component: () => import('../components/email/email.vue'),
+        meta: { title: '邮箱管理', icon: 'el-icon-message' }
       }
     ]
   }

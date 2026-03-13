@@ -125,7 +125,24 @@ python -c "import openpyxl; print('openpyxl ok')"
 - `DATABASES.default.HOST`
 - `DATABASES.default.PORT`
 
-### 4.3 启动后端（临时验证）
+### 4.3 邮件模块配置（新增）
+
+编辑：`/home/deploy/qixiangjiance/monitor/backend/api_server/settings.py`
+
+默认配置：
+- `EMAIL_IMAP_HOST = 'imap.163.com'`
+- `EMAIL_IMAP_PORT = 993`
+- `EMAIL_ATTACHMENT_DIR = 'downloads'`
+- `EMAIL_MAX_WORKERS = 16`
+- `EMAIL_MAX_QUERY_DAYS = 730`
+- `EMAIL_DOWNLOAD_RETRY_TIMES = 3`
+- `EMAIL_IMAP_TIMEOUT = 30`
+
+建议：
+- `EMAIL_ATTACHMENT_DIR` 改为绝对路径（如 `/data/email_downloads`），并确保磁盘空间充足。
+- 放行出站 993 端口（IMAP）。
+
+### 4.4 启动后端（临时验证）
 
 ```bash
 cd /home/deploy/qixiangjiance/monitor/backend

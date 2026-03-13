@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'apps.device',
     'apps.collect_data',
     'apps.receive_log',
+    'apps.email',
 ]
 
 MIDDLEWARE = [
@@ -118,6 +119,15 @@ TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
 
 USE_TZ = True
+
+# Email module settings
+EMAIL_IMAP_HOST = 'imap.163.com'
+EMAIL_IMAP_PORT = 993
+EMAIL_ATTACHMENT_DIR = 'downloads'
+EMAIL_MAX_WORKERS = 16
+EMAIL_MAX_QUERY_DAYS = 730
+EMAIL_DOWNLOAD_RETRY_TIMES = 3
+EMAIL_IMAP_TIMEOUT = 30
 
 
 # Static files (CSS, JavaScript, Images)

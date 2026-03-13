@@ -71,7 +71,8 @@ export default {
         3: 'el-icon-s-platform',
         21: 'el-icon-user',
         31: 'el-icon-s-platform',
-        32: 'el-icon-s-data'
+        32: 'el-icon-s-data',
+        22: 'el-icon-message'
       }
     }
   },
@@ -93,10 +94,18 @@ export default {
     },
     getMenuList () {
       const baseMenus = [
-        { id: 3, name: '设备管理', children: [{ id: 31, name: '设备列表', path: '/device_list' }, { id: 32, name: '数据接收', path: '/receive_log' }] }
+        { id: 3, name: '设备管理', children: [{ id: 31, name: '设备列表', path: '/device_list' }] }
       ]
       if (this.userType === 1) {
-        baseMenus.unshift({ id: 2, name: '用户管理', children: [{ id: 21, name: '用户列表', path: '/user_list' }] })
+        baseMenus.unshift({
+          id: 2,
+          name: '用户管理',
+          children: [
+            { id: 21, name: '用户列表', path: '/user_list' },
+            { id: 22, name: '邮箱管理', path: '/email_manage' }
+          ]
+        })
+        baseMenus[1].children.push({ id: 32, name: '数据接收', path: '/receive_log' })
       }
       this.menuList = baseMenus
     },
