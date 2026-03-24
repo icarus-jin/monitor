@@ -35,7 +35,12 @@ axios.interceptors.response.use(
     return response
   },
   error => {
-    Vue.prototype.$message.error('网络异常，请稍后重试')
+    const msg = (error && error.response && error.response.data && error.response.data.msg) || ''
+    if (msg) {
+      Vue.prototype.$message.error(msg)
+    } else {
+      Vue.prototype.$message.error('网络异常，请稍后重试')
+    }
     return Promise.reject(error)
   }
 )
