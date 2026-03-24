@@ -1,7 +1,9 @@
-# Linux 部署文档（新服务器）
+# Linux 部署文档（Git 部署，deploy 用户）
 
 适用项目：`monitor`（Django + Vue2 + MySQL + Nginx）  
 建议系统：`Ubuntu 22.04 LTS`
+
+> 说明：本文按 `deploy` 用户 + `git` 拉取代码方式编写。
 
 ---
 
@@ -17,20 +19,25 @@
 
 ---
 
-## 1. 服务器初始化
+## 1. 服务器初始化（无预装环境）
 
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo timedatectl set-timezone Asia/Shanghai
-sudo apt install -y curl wget vim unzip build-essential ca-certificates
-```
+# 可选：切换 APT 为国内镜像（以清华源为例，Ubuntu 22.04）
+cp /etc/apt/sources.list /etc/apt/sources.list.bak
+cat > /etc/apt/sources.list << 'EOF'
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy-updates main restricted universe multiverse
+deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ jammy-backports main restricted universe multiverse
+deb http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+EOF
 
-可选：创建部署用户（推荐）
+apt update && apt upgrade -y
+timedatectl set-timezone Asia/Shanghai
+apt install -y curl wget vim unzip build-essential ca-certificates git
 
-```bash
-sudo useradd -m -s /bin/bash deploy
-sudo passwd deploy
-sudo usermod -aG sudo deploy
+# 创建部署用户（已存在可跳过）
+id deploy || useradd -m -s /bin/bash deploy
+usermod -aG sudo deploy
 ```
 
 ---
@@ -42,45 +49,72 @@ sudo usermod -aG sudo deploy
 > `mysqlclient` 依赖系统库，必须先装。
 
 ```bash
-sudo apt install -y python3 python3-pip python3-venv
-sudo apt install -y default-libmysqlclient-dev pkg-config
+apt install -y python3 python3-pip python3-venv
+apt install -y default-libmysqlclient-dev pkg-config
 ```
 
 ### 2.2 Node.js（前端打包）
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+apt install -y nodejs
+
+# npm 使用国内源（淘宝镜像）
+npm config set registry https://registry.npmmirror.com
 node -v
 npm -v
+npm config get registry
 ```
 
 ### 2.3 Nginx
 
 ```bash
-sudo apt install -y nginx
-sudo systemctl enable nginx
-sudo systemctl start nginx
+apt install -y nginx
+systemctl enable nginx
+systemctl start nginx
 ```
+
+### 2.4 项目依赖说明（与代码同步）
+
+- 后端依赖以 `backend/requirements.txt` 为准，部署统一执行：
+  - `pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple`
+- 前端依赖以 `frontend/web/package.json` 为准，部署统一执行：
+  - `npm ci --registry=https://registry.npmmirror.com`
+
+当前后端关键依赖（节选）：
+- `Django==3.2.25`
+- `mysqlclient==2.2.7`
+- `PyMySQL==1.0.2`
+- `requests==2.32.5`
+- `openpyxl==3.1.5`
+
+当前前端关键依赖（节选）：
+- `vue@2.6.14`
+- `vue-router@3.5.1`
+- `axios@1.13.2`
+- `element-ui@2.4.5`
+- `cesium@1.138.0`
+- `mars3d@3.11.0`
+- `echarts@6.0.0`
 
 ---
 
-## 3. 上传代码（本地包部署）
+## 3. 获取代码（Git）
 
-将本地项目打包上传到服务器，例如：
+### 3.1 首次部署
 
 ```bash
-# 在本地执行
-zip -r qixiangjiance.zip qixiangjiance
-scp qixiangjiance.zip deploy@<server>:/home/deploy/
+su - deploy
+cd /home/deploy
+git clone <你的仓库地址> qixiangjiance
+cd /home/deploy/qixiangjiance
 ```
 
-在服务器解压：
+### 3.2 后续更新
 
 ```bash
-cd /home/deploy
-unzip qixiangjiance.zip
-cd /home/deploy/qixiangjiance/monitor
+cd /home/deploy/qixiangjiance
+git pull
 ```
 
 ---
@@ -88,36 +122,22 @@ cd /home/deploy/qixiangjiance/monitor
 ## 4. 后端部署（Django）
 
 ```bash
-cd /home/deploy/qixiangjiance/monitor/backend
+cd /home/deploy/qixiangjiance/backend
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-pip install gunicorn
+
+# pip 使用清华源
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install gunicorn -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 > 说明：`gunicorn` 不在当前 `requirements.txt` 中，需单独安装（如上）。
 
-### 4.1 Python 依赖清单（来自 requirements.txt）
+### 4.1 配置数据库（必须）
 
-当前核心依赖包括：
-- `Django==3.2.25`
-- `mysqlclient==2.2.7`
-- `PyMySQL==1.0.2`
-- `requests==2.32.5`
-- `openpyxl==3.1.5`
-- `beautifulsoup4`（邮箱正文解析依赖）
-
-建议部署后确认：
-
-```bash
-python -c "import django,requests,MySQLdb; print('django/requests/mysql ok')"
-python -c "import openpyxl,bs4; print('openpyxl/bs4 ok')"
-```
-
-### 4.2 配置数据库（必须）
-
-编辑：`/home/deploy/qixiangjiance/monitor/backend/api_server/settings.py`
+编辑：`/home/deploy/qixiangjiance/backend/api_server/settings.py`
 
 确认以下参数为你的生产环境配置：
 - `DATABASES.default.NAME`
@@ -126,9 +146,9 @@ python -c "import openpyxl,bs4; print('openpyxl/bs4 ok')"
 - `DATABASES.default.HOST`
 - `DATABASES.default.PORT`
 
-### 4.3 邮件模块配置（新增）
+### 4.2 邮件模块配置
 
-编辑：`/home/deploy/qixiangjiance/monitor/backend/api_server/settings.py`
+编辑：`/home/deploy/qixiangjiance/backend/api_server/settings.py`
 
 默认配置：
 - `EMAIL_IMAP_HOST = 'imap.163.com'`
@@ -140,17 +160,17 @@ python -c "import openpyxl,bs4; print('openpyxl/bs4 ok')"
 - `EMAIL_IMAP_TIMEOUT = 30`
 
 建议：
-- `EMAIL_ATTACHMENT_DIR` 建议配置绝对路径（如 `/data/email_downloads`），并确保磁盘空间充足。
-- 当前代码已兼容相对路径（默认 `downloads`，实际落在 `backend/downloads`），但生产建议使用绝对路径。
+- `EMAIL_ATTACHMENT_DIR` 建议改绝对路径（如 `/data/email_downloads`），并确保磁盘空间充足。
 - 放行出站 993 端口（IMAP）。
 
-### 4.4 数据库迁移与初始化（必须）
+### 4.3 数据库迁移与初始化（必须）
 
 ```bash
-cd /home/deploy/qixiangjiance/monitor/backend
+cd /home/deploy/qixiangjiance/backend
 source .venv/bin/activate
 python manage.py makemigrations
 python manage.py migrate
+python manage.py check
 ```
 
 > 若历史库中缺少邮箱表，可单独执行：
@@ -160,10 +180,10 @@ python manage.py makemigrations email
 python manage.py migrate email
 ```
 
-### 4.5 启动后端（临时验证）
+### 4.4 启动后端（临时验证）
 
 ```bash
-cd /home/deploy/qixiangjiance/monitor/backend
+cd /home/deploy/qixiangjiance/backend
 source .venv/bin/activate
 gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
 ```
@@ -173,13 +193,13 @@ gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
 ## 5. 前端部署（Vue）
 
 ```bash
-cd /home/deploy/qixiangjiance/monitor/frontend/web
-npm ci
+cd /home/deploy/qixiangjiance/frontend/web
+npm ci --registry=https://registry.npmmirror.com
 npm run build
 ```
 
 构建产物：
-- `/home/deploy/qixiangjiance/monitor/frontend/web/dist`
+- `/home/deploy/qixiangjiance/frontend/web/dist`
 
 ---
 
@@ -188,7 +208,7 @@ npm run build
 新建配置：
 
 ```bash
-sudo vim /etc/nginx/sites-available/qixiangjiance.conf
+vim /etc/nginx/sites-available/qixiangjiance.conf
 ```
 
 写入：
@@ -200,7 +220,7 @@ server {
 
     client_max_body_size 50m;
 
-    root /home/deploy/qixiangjiance/monitor/frontend/web/dist;
+    root /home/deploy/qixiangjiance/frontend/web/dist;
     index index.html;
 
     location / {
@@ -224,24 +244,19 @@ server {
 启用：
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/qixiangjiance.conf /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+ln -s /etc/nginx/sites-available/qixiangjiance.conf /etc/nginx/sites-enabled/
+nginx -t
+systemctl reload nginx
 ```
 
 ---
 
 ## 7. systemd 托管后端（推荐）
 
-> 如需启用 TCP 接收服务，还需单独托管 `apps.collect_data.run_collect_data`（默认监听 `0.0.0.0:8088`）。
-> 可另建服务：`qixiangjiance-collector.service`，执行命令：
-> `/home/deploy/qixiangjiance/monitor/backend/.venv/bin/python -m apps.collect_data.run_collect_data`
-
-
 创建服务：
 
 ```bash
-sudo vim /etc/systemd/system/qixiangjiance-backend.service
+vim /etc/systemd/system/qixiangjiance-backend.service
 ```
 
 内容：
@@ -254,9 +269,9 @@ After=network.target
 [Service]
 User=deploy
 Group=deploy
-WorkingDirectory=/home/deploy/qixiangjiance/monitor/backend
-Environment="PATH=/home/deploy/qixiangjiance/monitor/backend/.venv/bin"
-ExecStart=/home/deploy/qixiangjiance/monitor/backend/.venv/bin/gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
+WorkingDirectory=/home/deploy/qixiangjiance/backend
+Environment="PATH=/home/deploy/qixiangjiance/backend/.venv/bin"
+ExecStart=/home/deploy/qixiangjiance/backend/.venv/bin/gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
 Restart=always
 RestartSec=5
 
@@ -267,10 +282,10 @@ WantedBy=multi-user.target
 生效并启动：
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable qixiangjiance-backend
-sudo systemctl start qixiangjiance-backend
-sudo systemctl status qixiangjiance-backend
+systemctl daemon-reload
+systemctl enable qixiangjiance-backend
+systemctl start qixiangjiance-backend
+systemctl status qixiangjiance-backend
 ```
 
 日志：
@@ -279,46 +294,35 @@ sudo systemctl status qixiangjiance-backend
 journalctl -u qixiangjiance-backend -f
 ```
 
----
-
-## 8. 数据库性能（建议立即执行）
-
-趋势/轨迹查询建议每张业务时序表有复合索引：
-- `(devid, time)`
-
-如未执行，请先补索引后再压测。
+> 如需启用 TCP 接收服务，还需单独托管 `apps.collect_data.run_collect_data`（默认监听 `0.0.0.0:8088`）。
 
 ---
 
-## 9. 更新发布流程（本地包更新）
+## 8. Git 更新发布流程（推荐）
 
 ```bash
-# 在本地打包并上传
-zip -r qixiangjiance.zip qixiangjiance
-scp qixiangjiance.zip deploy@<server>:/home/deploy/
+# 1) 拉代码
+cd /home/deploy/qixiangjiance
+git pull
 
-# 在服务器解压覆盖
-cd /home/deploy
-unzip -o qixiangjiance.zip
-
-# 后端
-cd /home/deploy/qixiangjiance/monitor/backend
+# 2) 后端更新
+cd /home/deploy/qixiangjiance/backend
 source .venv/bin/activate
-pip install -r requirements.txt
-pip install gunicorn
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install gunicorn -i https://pypi.tuna.tsinghua.edu.cn/simple
 python manage.py migrate
-sudo systemctl restart qixiangjiance-backend
+systemctl restart qixiangjiance-backend
 
-# 前端
-cd /home/deploy/qixiangjiance/monitor/frontend/web
-npm ci
+# 3) 前端更新
+cd /home/deploy/qixiangjiance/frontend/web
+npm ci --registry=https://registry.npmmirror.com
 npm run build
-sudo systemctl reload nginx
+systemctl reload nginx
 ```
 
 ---
 
-## 10. 生产环境检查清单
+## 9. 生产环境检查清单
 
 1. `DEBUG=False`
 2. `ALLOWED_HOSTS` 仅保留真实域名/IP
@@ -329,19 +333,19 @@ sudo systemctl reload nginx
 
 ---
 
-## 11. 常见故障排查
+## 10. 常见故障排查
 
-### 11.1 页面可开但接口 502
+### 10.1 页面可开但接口 502
 - `systemctl status qixiangjiance-backend`
 - `journalctl -u qixiangjiance-backend -f`
 - 检查 Nginx `proxy_pass` 是否 `127.0.0.1:5000`
 
-### 11.2 导出/趋势请求超时
+### 10.2 导出/趋势请求超时
 - 提高 gunicorn `--timeout`
 - 提高 Nginx `proxy_read_timeout`
 - 检查 `(devid,time)` 索引是否已生效
 
-### 11.3 静态资源 404
+### 10.3 静态资源 404
 - 检查 Nginx `root` 是否为 `frontend/web/dist`
 - 重新执行 `npm run build`
-- `sudo systemctl reload nginx`
+- `systemctl reload nginx`
