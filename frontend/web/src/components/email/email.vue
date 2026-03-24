@@ -20,11 +20,11 @@
       <div class="query-row">
         <el-date-picker
           v-model="dateRange"
-          type="daterange"
+          type="datetimerange"
           range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          value-format="yyyy-MM-dd"
+          start-placeholder="开始时间(GMT)"
+          end-placeholder="结束时间(GMT)"
+          value-format="yyyy-MM-dd HH:mm:ss"
           size="small"
         />
         <el-button type="primary" size="small" :loading="listLoading" @click="fetchEmails(1)">查询</el-button>
@@ -118,8 +118,10 @@ export default {
       downloadInProgress: false,
       downloadProgress: 0,
       downloadTimer: null,
+      allSelected: false,
       emailList: [],
       selectedRows: [],
+      allEmailIds: [],
       total: 0,
       page: 1,
       pageSize: 20,
@@ -133,14 +135,18 @@ export default {
     const end = new Date()
     const start = new Date()
     start.setMonth(start.getMonth() - 1)
-    this.dateRange = [this.formatDate(start), this.formatDate(end)]
+    this.dateRange = [this.formatDateTimeToGmt(start), this.formatDateTimeToGmt(end)]
   },
   methods: {
-    formatDate (d) {
-      const yyyy = d.getFullYear()
-      const mm = String(d.getMonth() + 1).padStart(2, '0')
-      const dd = String(d.getDate()).padStart(2, '0')
-      return `${yyyy}-${mm}-${dd}`
+    formatDateTimeToGmt (d) {
+      const gmt = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      const yyyy = gmt.getUTCFullYear()
+      const mm = String(gmt.getUTCMonth() + 1).padStart(2, '0')
+      const dd = String(gmt.getUTCDate()).padStart(2, '0')
+      const hh = String(gmt.getUTCHours()).padStart(2, '0')
+      const mi = String(gmt.getUTCMinutes()).padStart(2, '0')
+      const ss = String(gmt.getUTCSeconds()).padStart(2, '0')
+      return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
     },
     log (msg) {
       const time = new Date().toLocaleTimeString()
@@ -201,8 +207,12 @@ export default {
           ...item,
           _content: ''
         }))
+        this.allEmailIds = data.all_ids || []
         this.total = data.total || 0
         this.totalPages = Math.max(1, Math.ceil(this.total / this.pageSize))
+        if (this.allSelected) {
+          this.selectedRows = this.allEmailIds.map(id => ({ id }))
+        }
         this.log(`查询完成，共 ${this.total} 封邮件`)
       } catch (e) {
         this.$message.error('查询失败')
@@ -217,6 +227,28 @@ export default {
     handlePageSizeChange (size) {
       this.pageSize = size
       this.fetchEmails(1)
+    },
+    async selectAll () {
+      if (!this.allEmailIds.length) {
+        this.$message.warning('暂无可选择的邮件')
+        return
+      }
+      this.allSelected = true
+      this.selectedRows = this.allEmailIds.map(id => ({ id }))
+      if (this.$refs.emailTable) {
+        this.$refs.emailTable.clearSelection()
+        this.$nextTick(() => {
+          this.$refs.emailTable.toggleAllSelection()
+        })
+      }
+      this.$message.success(`已选中全部 ${this.allEmailIds.length} 封邮件`)
+    },
+    resetSelection () {
+      this.allSelected = false
+      this.selectedRows = []
+      if (this.$refs.emailTable) {
+        this.$refs.emailTable.clearSelection()
+      }
     },
     startDownloadProgress () {
       this.downloadInProgress = true
@@ -242,16 +274,6 @@ export default {
           this.downloadProgress = 0
         }
       }, success ? 600 : 200)
-    },
-    selectAll () {
-      if (this.$refs.emailTable) {
-        this.$refs.emailTable.toggleAllSelection()
-      }
-    },
-    resetSelection () {
-      if (this.$refs.emailTable) {
-        this.$refs.emailTable.clearSelection()
-      }
     },
     async openContent (row) {
       this.contentDialogVisible = true

@@ -13,7 +13,7 @@
 
 其他：
 - 带宽建议 ≥ 5 Mbps
-- 需要放行端口：`80`（HTTP）、`443`（HTTPS 可选）、`5000`（后端内网）、TCP 接收端口（按配置）
+- 需要放行端口：`80`（HTTP）、`443`（HTTPS 可选）、`5000`（后端内网）、`8088`（TCP 接收服务，默认）、MySQL 端口（按实际配置，如 `3306`/`33060`）
 
 ---
 
@@ -105,13 +105,14 @@ pip install gunicorn
 - `mysqlclient==2.2.7`
 - `PyMySQL==1.0.2`
 - `requests==2.32.5`
-- `openpyxl`（代码已使用；如环境缺失请执行 `pip install openpyxl`）
+- `openpyxl==3.1.5`
+- `beautifulsoup4`（邮箱正文解析依赖）
 
 建议部署后确认：
 
 ```bash
-python -c "import django,mysqlclient,requests; print('ok')" 2>/dev/null || true
-python -c "import openpyxl; print('openpyxl ok')"
+python -c "import django,requests,MySQLdb; print('django/requests/mysql ok')"
+python -c "import openpyxl,bs4; print('openpyxl/bs4 ok')"
 ```
 
 ### 4.2 配置数据库（必须）
@@ -139,10 +140,27 @@ python -c "import openpyxl; print('openpyxl ok')"
 - `EMAIL_IMAP_TIMEOUT = 30`
 
 建议：
-- `EMAIL_ATTACHMENT_DIR` 改为绝对路径（如 `/data/email_downloads`），并确保磁盘空间充足。
+- `EMAIL_ATTACHMENT_DIR` 建议配置绝对路径（如 `/data/email_downloads`），并确保磁盘空间充足。
+- 当前代码已兼容相对路径（默认 `downloads`，实际落在 `backend/downloads`），但生产建议使用绝对路径。
 - 放行出站 993 端口（IMAP）。
 
-### 4.4 启动后端（临时验证）
+### 4.4 数据库迁移与初始化（必须）
+
+```bash
+cd /home/deploy/qixiangjiance/monitor/backend
+source .venv/bin/activate
+python manage.py makemigrations
+python manage.py migrate
+```
+
+> 若历史库中缺少邮箱表，可单独执行：
+
+```bash
+python manage.py makemigrations email
+python manage.py migrate email
+```
+
+### 4.5 启动后端（临时验证）
 
 ```bash
 cd /home/deploy/qixiangjiance/monitor/backend
@@ -215,6 +233,11 @@ sudo systemctl reload nginx
 
 ## 7. systemd 托管后端（推荐）
 
+> 如需启用 TCP 接收服务，还需单独托管 `apps.collect_data.run_collect_data`（默认监听 `0.0.0.0:8088`）。
+> 可另建服务：`qixiangjiance-collector.service`，执行命令：
+> `/home/deploy/qixiangjiance/monitor/backend/.venv/bin/python -m apps.collect_data.run_collect_data`
+
+
 创建服务：
 
 ```bash
@@ -283,6 +306,7 @@ cd /home/deploy/qixiangjiance/monitor/backend
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install gunicorn
+python manage.py migrate
 sudo systemctl restart qixiangjiance-backend
 
 # 前端

@@ -123,10 +123,17 @@ class EmailListView(View):
             if not start_date or not end_date:
                 return error('开始/结束日期不能为空', code=400)
 
-            try:
-                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-            except Exception:
+            def _parse_dt(value):
+                for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+                    try:
+                        return datetime.strptime(value, fmt)
+                    except Exception:
+                        continue
+                return None
+
+            start_dt = _parse_dt(start_date)
+            end_dt = _parse_dt(end_date)
+            if not start_dt or not end_dt:
                 return error('日期格式不正确', code=400)
 
             host, port, max_days = _get_imap_config()
