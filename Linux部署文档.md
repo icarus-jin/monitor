@@ -180,22 +180,33 @@ python manage.py makemigrations email
 python manage.py migrate email
 ```
 
-### 4.4 启动后端（临时验证）
+### 4.4 启动后端（后台运行）
 
 ```bash
 cd /home/deploy/qixiangjiance/backend
 source .venv/bin/activate
-gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120
+nohup gunicorn api_server.wsgi:application -b 127.0.0.1:5000 -w 4 --timeout 120 > /home/deploy/qixiangjiance/backend/logs/gunicorn.out 2>&1 &
+```
+
+查看进程：
+
+```bash
+ps -ef | grep gunicorn
 ```
 
 ---
 
-## 5. 前端部署（Vue）
+## 5. 前端部署（Vue，后台运行）
 
 ```bash
 cd /home/deploy/qixiangjiance/frontend/web
 npm ci --registry=https://registry.npmmirror.com
+
+# 方式一（推荐生产）：构建后交给 Nginx 托管（天然后台）
 npm run build
+
+# 方式二（仅临时验证）：前端开发服务后台运行
+nohup npm run serve -- --host 0.0.0.0 --port 8080 > /home/deploy/qixiangjiance/frontend/web/serve.out 2>&1 &
 ```
 
 构建产物：
@@ -295,6 +306,14 @@ journalctl -u qixiangjiance-backend -f
 ```
 
 > 如需启用 TCP 接收服务，还需单独托管 `apps.collect_data.run_collect_data`（默认监听 `0.0.0.0:8088`）。
+
+TCP 接收服务（临时后台运行）示例：
+
+```bash
+cd /home/deploy/qixiangjiance/backend
+source .venv/bin/activate
+nohup python -m apps.collect_data.run_collect_data > /home/deploy/qixiangjiance/backend/logs/collector.out 2>&1 &
+```
 
 ---
 

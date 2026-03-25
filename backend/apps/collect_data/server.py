@@ -2,7 +2,7 @@
 import socketserver
 from datetime import datetime
 
-from utils.log import logger, request_logger
+from utils.log import collector_logger as logger, request_logger
 
 from .receive_log import insert_receive_log, build_stage_status
 from .data_save import get_device_by_iridiumid, parse_payload_by_sensorflag

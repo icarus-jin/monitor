@@ -118,10 +118,10 @@ def _init_file_lifecycle() -> None:
 _init_file_lifecycle()
 
 
-logger = logging.getLogger('monitor')
-if not logger.handlers:
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
+app_logger = logging.getLogger('monitor.app')
+if not app_logger.handlers:
+    app_logger.setLevel(logging.INFO)
+    app_logger.propagate = False
 
     info_handler = _build_rotating_handler('info.log')
     info_handler.addFilter(_LevelFilter(logging.INFO, logging.WARNING))
@@ -133,9 +133,29 @@ if not logger.handlers:
     stream_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
     stream_handler.addFilter(_RequestIdFilter())
 
-    logger.addHandler(info_handler)
-    logger.addHandler(error_handler)
-    logger.addHandler(stream_handler)
+    app_logger.addHandler(info_handler)
+    app_logger.addHandler(error_handler)
+    app_logger.addHandler(stream_handler)
+
+
+collector_logger = logging.getLogger('monitor.collector')
+if not collector_logger.handlers:
+    collector_logger.setLevel(logging.INFO)
+    collector_logger.propagate = False
+
+    collector_info_handler = _build_rotating_handler('collect_data_info.log')
+    collector_info_handler.addFilter(_LevelFilter(logging.INFO, logging.WARNING))
+
+    collector_error_handler = _build_rotating_handler('collect_data_error.log')
+    collector_error_handler.setLevel(logging.ERROR)
+
+    collector_stream_handler = logging.StreamHandler(sys.stdout)
+    collector_stream_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
+    collector_stream_handler.addFilter(_RequestIdFilter())
+
+    collector_logger.addHandler(collector_info_handler)
+    collector_logger.addHandler(collector_error_handler)
+    collector_logger.addHandler(collector_stream_handler)
 
 
 request_logger = logging.getLogger('collect_data.request')
@@ -150,3 +170,7 @@ if not request_logger.handlers:
 
     request_logger.addHandler(request_file_handler)
     request_logger.addHandler(request_stream_handler)
+
+
+# 向后兼容：业务代码默认导入 logger 即应用日志
+logger = app_logger

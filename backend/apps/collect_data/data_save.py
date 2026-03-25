@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from django.db import connections
 
-from utils.log import logger
+from utils.log import collector_logger as logger
 
 from .utils import bytes_to_iridiumid
 from .parsers.parser_02003 import parse_02003_type_0200301
