@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <link rel="icon" type="image/png" href="<%= BASE_URL %>logo.png">
+    <link rel="shortcut icon" type="image/png" href="<%= BASE_URL %>logo.png">
+    <title>气象监测管理系统</title>
+
+    <!-- Mars3D/Cesium 依赖（必须按顺序） -->
+    <link rel="stylesheet" href="<%= BASE_URL %>lib/Cesium/Widgets/widgets.css" />
+    <script>window.CESIUM_BASE_URL = '<%= BASE_URL %>lib/Cesium/'</script>
+    <script src="<%= BASE_URL %>lib/Cesium/Cesium.js"></script>
+    <script src="<%= BASE_URL %>static/css/turf.min.js"></script>
+    <link rel="stylesheet" href="<%= BASE_URL %>static/css/mars3d.css" />
+    <script src="<%= BASE_URL %>static/css/mars3d.js"></script>
+  </head>
+  <body>
+    <noscript>
+      <strong>We're sorry but <%= htmlWebpackPlugin.options.title %> doesn't work properly without JavaScript enabled. Please enable it to continue.</strong>
+    </noscript>
+    <div id="app"></div>
+    <!-- built files will be auto injected -->
+  </body>
+</html>
