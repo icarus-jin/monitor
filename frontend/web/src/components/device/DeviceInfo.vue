@@ -296,7 +296,7 @@ export default {
       trendPoints: [],
       chartPoints: [],
       trendDateRange: [],
-      trendRangeType: '1y',
+      trendRangeType: '30d',
       trendPage: 1,
       trendPageSize: 100,
       trendTotal: 0,
@@ -399,7 +399,7 @@ export default {
       return style
     },
     initDefaultYearRange () {
-      this.trendRangeType = '1y'
+      this.trendRangeType = '30d'
       this.updateTrendDateRange()
     },
     updateTrendDateRange () {
@@ -745,8 +745,7 @@ export default {
           params: {
             device_id: this.currentDevice.device_id,
             start_date: startDate,
-            end_date: endDate,
-            limit: 600
+            end_date: endDate
           }
         })
         this.trackPoints = (res.code === 200 && res.data && res.data.points) ? res.data.points : []
@@ -974,7 +973,7 @@ export default {
       this.trendPage = 1
       this.trendPageSize = 100
       this.trendTotal = 0
-      this.trendRangeType = '1y'
+      this.trendRangeType = '30d'
       this.dataVisible = true
       this.updateTrendDateRange()
     },
@@ -1049,8 +1048,7 @@ export default {
             range_type: this.trendRangeType,
             start_date: startDate,
             end_date: endDate,
-            page: 1,
-            page_size: this.getChartFetchSize()
+            for_chart: 1
           }
         })
         const points = (chartRes.code === 200 && chartRes.data && chartRes.data.points) ? chartRes.data.points : []

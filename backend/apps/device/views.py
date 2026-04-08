@@ -798,6 +798,7 @@ class DeviceTrendView(View):
             end_date = (request.GET.get('end_date') or '').strip()
             page = _clamp(_get_int_query(request, 'page', 1), 1, 1000000)
             page_size = _clamp(_get_int_query(request, 'page_size', 100), 1, 1000)
+            for_chart = str(request.GET.get('for_chart', '')).strip() in ('1', 'true', 'True')
 
             if not device_id:
                 return error('device_id不能为空', code=400)
@@ -813,8 +814,6 @@ class DeviceTrendView(View):
             else:
                 start_dt, end_dt = _parse_date_range(start_date, end_date)
 
-            offset = (page - 1) * page_size
-
             source_table = _table_by_device_id(device_id)
             if not source_table:
                 return success(data=_empty_trend_payload(device_id, '', range_type, start_dt, end_dt, page, page_size))
@@ -828,13 +827,18 @@ class DeviceTrendView(View):
             columns = [{'field': f, 'label': _field_label(f, comment_map)} for f in fields if f != 'time']
 
             count_sql = f"SELECT COUNT(*) FROM `{source_table}` WHERE devid=%s AND `time` BETWEEN %s AND %s"
-            data_sql = f"SELECT * FROM `{source_table}` WHERE devid=%s AND `time` BETWEEN %s AND %s ORDER BY `time` DESC LIMIT %s OFFSET %s"
+            data_sql_base = f"SELECT * FROM `{source_table}` WHERE devid=%s AND `time` BETWEEN %s AND %s ORDER BY `time` DESC"
 
             with connections[RAW_DB].cursor() as cursor:
                 cursor.execute(count_sql, [device_id, start_dt, end_dt])
                 total_count = cursor.fetchone()[0]
 
-                cursor.execute(data_sql, [device_id, start_dt, end_dt, page_size, offset])
+                if for_chart:
+                    cursor.execute(data_sql_base, [device_id, start_dt, end_dt])
+                else:
+                    offset = (page - 1) * page_size
+                    data_sql = data_sql_base + " LIMIT %s OFFSET %s"
+                    cursor.execute(data_sql, [device_id, start_dt, end_dt, page_size, offset])
                 rows = _dict_fetch_all(cursor)
 
             points = []
@@ -873,7 +877,6 @@ class DeviceTrackView(View):
                 return auth_err
 
             device_id = (request.GET.get('device_id') or '').strip()
-            limit = _get_int_query(request, 'limit', 600)
             start_date = (request.GET.get('start_date') or '').strip()
             end_date = (request.GET.get('end_date') or '').strip()
             if not device_id:
@@ -903,10 +906,9 @@ class DeviceTrackView(View):
               AND `time` IS NOT NULL
               AND `time` BETWEEN %s AND %s
             ORDER BY `time` DESC
-            LIMIT %s
             """
             with connections[RAW_DB].cursor() as cursor:
-                cursor.execute(sql, [device_id, start_dt, end_dt, limit])
+                cursor.execute(sql, [device_id, start_dt, end_dt])
                 rows = cursor.fetchall()
 
             points = []
